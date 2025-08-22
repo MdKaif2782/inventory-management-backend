@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ProductModule } from '../product/product.module';
 import { PosModule } from '../pos/pos.module';
 import { StaffManagementModule } from '../staff-management/staff-management.module';
+import { ReportModule } from '../report/report.module';
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { StaffManagementModule } from '../staff-management/staff-management.modu
     AuthModule,
     ProductModule,
     PosModule,
-    StaffManagementModule
+    StaffManagementModule,
+    ReportModule
     //FirebaseModule,
   ],
   controllers: [AppController],
