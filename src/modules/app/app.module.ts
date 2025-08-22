@@ -6,6 +6,7 @@ import { Auth } from 'firebase-admin/lib/auth/auth';
 import { AuthModule } from '../auth/auth.module';
 import { ProductModule } from '../product/product.module';
 import { PosModule } from '../pos/pos.module';
+import { StaffManagementModule } from '../staff-management/staff-management.module';
 
 @Module({
   imports: [
@@ -15,7 +16,8 @@ import { PosModule } from '../pos/pos.module';
     }),
     AuthModule,
     ProductModule,
-    PosModule
+    PosModule,
+    StaffManagementModule
     //FirebaseModule,
   ],
   controllers: [AppController],
