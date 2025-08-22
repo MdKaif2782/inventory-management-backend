@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import { Auth } from 'firebase-admin/lib/auth/auth';
 import { AuthModule } from '../auth/auth.module';
 import { ProductModule } from '../product/product.module';
+import { PosModule } from '../pos/pos.module';
 
 @Module({
   imports: [
@@ -13,7 +14,8 @@ import { ProductModule } from '../product/product.module';
       cache: true,
     }),
     AuthModule,
-    ProductModule
+    ProductModule,
+    PosModule
     //FirebaseModule,
   ],
   controllers: [AppController],
