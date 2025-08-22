@@ -5,7 +5,7 @@ import {
 } from "@nestjs/common";
 import { hash, verify } from "argon2";
 import { JwtService } from "@nestjs/jwt";
-import { User } from "@prisma/client";
+import { Staff, StaffStatus } from "@prisma/client";
 import { DatabaseService } from "../database/database.service";
 import { ConfigService } from "@nestjs/config";
 import { AccessToken } from "./auth.strategy";
@@ -18,52 +18,24 @@ export class AuthService {
     private jwtService: JwtService
   ) {}
 
-  async registerLocal(user: Pick<User, "email" | "password">) {
-    user.password = await this.createHash(user.password);
-
-    const foundUser = await this.databaseService.user.findUnique({
+  async logInLocal(credentials: { username: string; password: string }) {
+    const foundStaff = await this.databaseService.staff.findUnique({
       where: {
-        email: user.email
+        username: credentials.username
       }
     });
 
-    if (foundUser) {
-      throw new ForbiddenException("Your email is already registered");
+    if (!foundStaff) {
+      throw new ForbiddenException("Staff account not found");
     }
 
-    const newUser = await this.databaseService.user.create({
-      data: {
-        email: user.email,
-        password: user.password
-      }
-    });
-
-    const { accessToken, refreshToken } = await this.generateTokens({
-      id: newUser.id
-    });
-
-    await this.storeRefreshToken({
-      id: newUser.id,
-      refreshToken
-    });
-
-    return { accessToken, refreshToken };
-  }
-
-  async logInLocal(user: Pick<User, "email" | "password">) {
-    const foundUser = await this.databaseService.user.findUnique({
-      where: {
-        email: user.email
-      }
-    });
-
-    if (!foundUser) {
-      throw new ForbiddenException("User is not registered");
+    if (foundStaff.status === StaffStatus.INACTIVE) {
+      throw new ForbiddenException("Account is inactive");
     }
 
     const isPasswordCorrect = await this.verifyHash(
-      foundUser.password,
-      user.password
+      foundStaff.password,
+      credentials.password
     );
 
     if (!isPasswordCorrect) {
@@ -71,35 +43,50 @@ export class AuthService {
     }
 
     const { accessToken, refreshToken } = await this.generateTokens({
-      id: foundUser.id
+      id: foundStaff.id,
+      staffId: foundStaff.staffId,
+      role: foundStaff.role
     });
 
     await this.storeRefreshToken({
-      id: foundUser.id,
+      id: foundStaff.id,
       refreshToken
     });
 
-    return { id: foundUser.id, accessToken, refreshToken };
+    // Update last login timestamp
+    await this.databaseService.staff.update({
+      where: { id: foundStaff.id },
+      data: { lastLogin: new Date() }
+    });
+
+    return { 
+      id: foundStaff.id, 
+      staffId: foundStaff.staffId,
+      fullName: foundStaff.fullName,
+      role: foundStaff.role,
+      accessToken, 
+      refreshToken 
+    };
   }
 
-  async logOut(user: Pick<User, "id">) {
-    const foundUser = await this.databaseService.user.findUnique({
+  async logOut(staff: Pick<Staff, "id">) {
+    const foundStaff = await this.databaseService.staff.findUnique({
       where: {
-        id: user.id
+        id: staff.id
       }
     });
 
-    if (!foundUser) {
-      throw new ForbiddenException("User is not registered");
+    if (!foundStaff) {
+      throw new ForbiddenException("Staff account not found");
     }
 
-    if (!foundUser.refreshToken) {
+    if (!foundStaff.refreshToken) {
       throw new ForbiddenException("Already logged out");
     }
 
-    await this.databaseService.user.update({
+    await this.databaseService.staff.update({
       where: {
-        id: user.id
+        id: staff.id
       },
       data: {
         refreshToken: null
@@ -107,24 +94,24 @@ export class AuthService {
     });
   }
 
-  async refreshToken(user: Pick<User, "id" | "refreshToken">) {
-    const foundUser = await this.databaseService.user.findUnique({
+  async refreshToken(staff: Pick<Staff, "id" | "refreshToken">) {
+    const foundStaff = await this.databaseService.staff.findUnique({
       where: {
-        id: user.id
+        id: staff.id
       }
     });
 
-    if (!foundUser) {
-      throw new ForbiddenException("User is not registered");
+    if (!foundStaff) {
+      throw new ForbiddenException("Staff account not found");
     }
 
-    if (!foundUser.refreshToken) {
+    if (!foundStaff.refreshToken) {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
     const isRefreshTokenValid = await this.verifyHash(
-      foundUser.refreshToken,
-      user.refreshToken
+      foundStaff.refreshToken,
+      staff.refreshToken
     );
 
     if (!isRefreshTokenValid) {
@@ -132,26 +119,28 @@ export class AuthService {
     }
 
     const { accessToken, refreshToken } = await this.generateTokens({
-      id: foundUser.id
+      id: foundStaff.id,
+      staffId: foundStaff.staffId,
+      role: foundStaff.role
     });
 
     await this.storeRefreshToken({
-      id: foundUser.id,
+      id: foundStaff.id,
       refreshToken
     });
 
     return { accessToken, refreshToken };
   }
 
-  async storeRefreshToken(user: Pick<User, "id" | "refreshToken">) {
-    user.refreshToken = await this.createHash(user.refreshToken);
+  async storeRefreshToken(staff: Pick<Staff, "id" | "refreshToken">) {
+    staff.refreshToken = await this.createHash(staff.refreshToken);
 
-    await this.databaseService.user.update({
+    await this.databaseService.staff.update({
       where: {
-        id: user.id
+        id: staff.id
       },
       data: {
-        refreshToken: user.refreshToken
+        refreshToken: staff.refreshToken
       }
     });
   }

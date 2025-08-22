@@ -1,81 +1,205 @@
+// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgres"
+  provider = "postgresql" // or your preferred database
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  password     String
-  refreshToken String?
-  registeredAt DateTime? @default(now())
-}
-
-model Metadata {
-  id        String   @id @default(uuid())
-  
-  //config
-  deliveryCharge Float
-  deliveryChargeOutsideDhaka Float  @default(120)
-  bannerUrl     String
-  bannerImage    String[] @default(["https://i.ibb.co/Wv3LTYzC/06611afe32a5.jpg"])
-  title         String
-  description   String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
 model Product {
-  id          String   @id @default(uuid()) 
-
-  //input
-  name        String
-  description String
-  categoryId String?
-  imageUrl   String[]
-  details    String[]
-  sizeDescription String[]
-
-  price       Float
-  discountPrice Float?
-
-  //automated
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  continued   Boolean  @default(true)
+  id             String     @id @default(cuid())
+  productId      String     @unique // PRD001, PRD002, etc.
+  name           String
+  category       String
+  barcode        String     @unique
+  purchasePrice  Float
+  salePrice      Float
+  quantity       Int
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  inventoryLogs  InventoryLog[]
+  saleItems      SaleItem[]
+  quotationItems QuotationProductItem[]
   
+  @@map("products")
 }
 
+model Staff {
+  id           String      @id @default(cuid())
+  staffId      String      @unique // STF001, STF002, etc.
+  fullName     String
+  username     String      @unique
+  email        String
+  phone        String
+  password     String      // hashed password
+  role         StaffRole   @default(STAFF)
+  status       StaffStatus @default(ACTIVE)
+  refreshToken String?
+  createdAt    DateTime    @default(now())
+  lastLogin    DateTime?
+  inventoryLogs InventoryLog[]
+  sales        Sale[]
+  
+  @@map("staff")
+}
 
-enum DeliveryStatus {
-  PENDING
-  DISPATCHED
-  DELIVERED
+enum StaffRole {
+  ADMIN
+  STAFF
+}
+
+enum StaffStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Sale {
+  id        String     @id @default(cuid())
+  saleId    String     @unique // SALE001, etc.
+  cashierId String
+  cashier   Staff      @relation(fields: [cashierId], references: [id])
+  items     SaleItem[]
+  total     Float
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  @@map("sales")
+}
+
+model SaleItem {
+  id        String   @id @default(cuid())
+  saleId    String
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Float    // snapshot of price at time of sale
+  
+  @@map("sale_items")
+}
+
+model InventoryLog {
+  id         String         @id @default(cuid())
+  productId  String
+  product    Product        @relation(fields: [productId], references: [id])
+  type       InventoryLogType
+  quantity   Int?
+  userId     String
+  user       Staff          @relation(fields: [userId], references: [id])
+  note       String?
+  createdAt  DateTime       @default(now())
+  
+  @@map("inventory_logs")
+}
+
+enum InventoryLogType {
+  IN
+  OUT
+  ADDED
+  EDITED
+}
+
+model Quotation {
+  id            String                 @id @default(cuid())
+  quotationId   String                 @unique // QUO001, etc.
+  type          QuotationType
+  client        String
+  workOrderRef  String?
+  date          DateTime
+  subject       String
+  total         Float
+  status        QuotationStatus        @default(DRAFT)
+  productItems  QuotationProductItem[]
+  serviceItems  QuotationServiceItem[]
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  
+  @@map("quotations")
+}
+
+enum QuotationType {
+  PRODUCT
+  SERVICE
+  HYBRID
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+}
+
+model QuotationProductItem {
+  id           String    @id @default(cuid())
+  quotationId  String
+  quotation    Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productId    String?
+  product      Product?  @relation(fields: [productId], references: [id])
+  description  String
+  size         String?
+  unit         String
+  quantity     Int
+  unitPrice    Float
+  discount     Float     @default(0)
+  total        Float
+  
+  @@map("quotation_product_items")
+}
+
+model QuotationServiceItem {
+  id           String    @id @default(cuid())
+  quotationId  String
+  quotation    Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  category     String
+  description  String
+  unit         String
+  quantity     Int
+  unitPrice    Float
+  discount     Float     @default(0)
+  remarks      String?
+  total        Float
+  
+  @@map("quotation_service_items")
+}
+
+model GatePass {
+  id        String       @id @default(cuid())
+  passNumber String      @unique // GP-2024-001, etc.
+  type      GatePassType
+  name      String
+  purpose   String
+  date      DateTime
+  status    GatePassStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  
+  @@map("gate_passes")
+}
+
+enum GatePassType {
+  EMPLOYEE
+  VISITOR
+  MATERIAL
+  VEHICLE
+}
+
+enum GatePassStatus {
+  ACTIVE
+  COMPLETED
   CANCELLED
 }
 
-enum OrderStatus {
-  PENDING
-  CHECKED_OUT
-  CANCELLED
-}
-
-enum PaymentStatus {
-  PENDING
-  PAID
-  REFUNDED
-  CANCELLED
-}
-
-enum PaymentMethod {
-  CASH_ON_DELIVERY
-  CREDIT_CARD
-  DEBIT_CARD
-  MOBILE_BANKING
-  OTHER
+model FinancialReport {
+  id           String   @id @default(cuid())
+  period       String   // e.g., "2024-01"
+  totalRevenue Float
+  totalCost    Float
+  netProfit    Float
+  profitMargin Float
+  createdAt    DateTime @default(now())
+  
+  @@map("financial_reports")
 }

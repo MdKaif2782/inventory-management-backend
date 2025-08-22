@@ -3,10 +3,13 @@ import { PassportStrategy } from "@nestjs/passport";
 import { ConfigService } from "@nestjs/config";
 import { Injectable } from "@nestjs/common";
 import { Request } from "express";
+import { StaffRole } from "@prisma/client";
 
-export type AccessToken = {
+export interface AccessToken {
   id: string;
-};
+  staffId: string;
+  role: StaffRole;
+}
 
 @Injectable()
 export class AccessTokenStrategy extends PassportStrategy(Strategy, "jwt") {
