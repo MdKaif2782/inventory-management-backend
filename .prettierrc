@@ -1,0 +1,7 @@
+{
+  "plugins": [],
+  "printWidth": 1000,
+  "trailingComma": "none",
+  "semi": false,
+  "singleQuote": false
+}

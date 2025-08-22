@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgres"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  password     String
+  refreshToken String?
+  registeredAt DateTime? @default(now())
+}
+
+model Metadata {
+  id        String   @id @default(uuid())
+  
+  //config
+  deliveryCharge Float
+  deliveryChargeOutsideDhaka Float  @default(120)
+  bannerUrl     String
+  bannerImage    String[] @default(["https://i.ibb.co/Wv3LTYzC/06611afe32a5.jpg"])
+  title         String
+  description   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Product {
+  id          String   @id @default(uuid()) 
+
+  //input
+  name        String
+  description String
+  categoryId String?
+  imageUrl   String[]
+  details    String[]
+  sizeDescription String[]
+
+  price       Float
+  discountPrice Float?
+
+  //automated
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  continued   Boolean  @default(true)
+  
+}
+
+
+enum DeliveryStatus {
+  PENDING
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum OrderStatus {
+  PENDING
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  CREDIT_CARD
+  DEBIT_CARD
+  MOBILE_BANKING
+  OTHER
+}
