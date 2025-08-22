@@ -1,3 +1,4 @@
+// report.service.ts
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { 
@@ -7,7 +8,18 @@ import {
   CategoryDataDto, 
   ProductPerformanceDto 
 } from './dto';
-import { addDays, subDays, subMonths, startOfMonth, endOfMonth, format, eachMonthOfInterval } from 'date-fns';
+import { 
+  addDays, 
+  subDays, 
+  subMonths, 
+  startOfMonth, 
+  endOfMonth, 
+  format, 
+  eachMonthOfInterval,
+  startOfDay,
+  endOfDay,
+  differenceInDays
+} from 'date-fns';
 
 // Color palette for charts
 const CATEGORY_COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
@@ -19,41 +31,55 @@ export class ReportService {
   private getDateRange(filter: ReportFilterDto): { start: Date; end: Date } {
     const now = new Date();
     let start: Date;
-    let end: Date = now;
+    let end: Date = endOfDay(now);
 
     switch (filter.period) {
       case 'day':
-        start = subDays(now, 1);
+        start = startOfDay(now);
         break;
       case 'week':
-        start = subDays(now, 7);
+        start = startOfDay(subDays(now, 7));
         break;
       case 'month':
-        start = subMonths(now, 1);
+        start = startOfDay(subMonths(now, 1));
         break;
       case 'quarter':
-        start = subMonths(now, 3);
+        start = startOfDay(subMonths(now, 3));
         break;
       case 'year':
-        start = subMonths(now, 12);
+        start = startOfDay(subMonths(now, 12));
         break;
       case 'custom':
-        start = filter.startDate || subMonths(now, 1);
-        end = filter.endDate || now;
+        start = filter.startDate ? startOfDay(filter.startDate) : startOfDay(subMonths(now, 1));
+        end = filter.endDate ? endOfDay(filter.endDate) : endOfDay(now);
         break;
       default:
-        start = subMonths(now, 1);
+        start = startOfDay(subMonths(now, 1));
     }
 
     return { start, end };
   }
 
+  private getPreviousPeriod(currentStart: Date, currentEnd: Date): { start: Date; end: Date } {
+    const periodLength = differenceInDays(currentEnd, currentStart);
+    const previousEnd = startOfDay(currentStart);
+    const previousStart = subDays(previousEnd, periodLength);
+    
+    return {
+      start: startOfDay(previousStart),
+      end: endOfDay(previousEnd)
+    };
+  }
+
   async getFinancialSummary(filter: ReportFilterDto): Promise<FinancialSummaryDto> {
     const { start, end } = this.getDateRange(filter);
-    const previousPeriod = {
-      start: subDays(start, addDays(end, 1).getTime() - start.getTime()),
-      end: start
-    };
+    
+    // Validate dates
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error('Invalid date range');
+    }
+
+    const previousPeriod = this.getPreviousPeriod(start, end);
 
     // Get current period sales
     const currentSales = await this.databaseService.sale.findMany({
@@ -118,10 +144,10 @@ export class ReportService {
     const prevProfitMargin = prevTotalRevenue > 0 ? (prevNetProfit / prevTotalRevenue) * 100 : 0;
 
     // Calculate changes
-    const revenueChange = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : 0;
-    const costChange = prevTotalCost > 0 ? ((totalCost - prevTotalCost) / prevTotalCost) * 100 : 0;
-    const profitChange = prevNetProfit > 0 ? ((netProfit - prevNetProfit) / prevNetProfit) * 100 : 0;
-    const marginChange = prevProfitMargin > 0 ? (profitMargin - prevProfitMargin) : 0;
+    const revenueChange = prevTotalRevenue > 0 ? ((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 : totalRevenue > 0 ? 100 : 0;
+    const costChange = prevTotalCost > 0 ? ((totalCost - prevTotalCost) / prevTotalCost) * 100 : totalCost > 0 ? 100 : 0;
+    const profitChange = prevNetProfit > 0 ? ((netProfit - prevNetProfit) / prevNetProfit) * 100 : netProfit > 0 ? 100 : 0;
+    const marginChange = profitMargin - prevProfitMargin;
 
     return {
       totalRevenue,
@@ -137,6 +163,12 @@ export class ReportService {
 
   async getMonthlyData(filter: ReportFilterDto): Promise<MonthlyDataDto[]> {
     const { start, end } = this.getDateRange(filter);
+    
+    // Validate dates
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error('Invalid date range');
+    }
+
     const months = eachMonthOfInterval({ start, end });
     
     const monthlyData: MonthlyDataDto[] = [];
@@ -185,6 +217,11 @@ export class ReportService {
   async getCategoryData(filter: ReportFilterDto): Promise<CategoryDataDto[]> {
     const { start, end } = this.getDateRange(filter);
     
+    // Validate dates
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error('Invalid date range');
+    }
+
     const sales = await this.databaseService.sale.findMany({
       where: {
         createdAt: {
@@ -234,6 +271,11 @@ export class ReportService {
   async getProductPerformance(filter: ReportFilterDto): Promise<ProductPerformanceDto[]> {
     const { start, end } = this.getDateRange(filter);
     
+    // Validate dates
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error('Invalid date range');
+    }
+
     const sales = await this.databaseService.sale.findMany({
       where: {
         createdAt: {
