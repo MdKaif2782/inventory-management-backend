@@ -1,11 +1,12 @@
 import {
   ForbiddenException,
   Injectable,
-  UnauthorizedException
+  UnauthorizedException,
+  BadRequestException
 } from "@nestjs/common";
 import { hash, verify } from "argon2";
 import { JwtService } from "@nestjs/jwt";
-import { Staff, StaffStatus } from "@prisma/client";
+import { Staff, StaffStatus, StaffRole } from "@prisma/client";
 import { DatabaseService } from "../database/database.service";
 import { ConfigService } from "@nestjs/config";
 import { AccessToken } from "./auth.strategy";
@@ -17,6 +18,76 @@ export class AuthService {
     private databaseService: DatabaseService,
     private jwtService: JwtService
   ) {}
+
+  async registerLocal(staffData: {
+    username: string;
+    password: string;
+    fullName: string;
+    email: string;
+    phone: string;
+    role?: StaffRole;
+  }) {
+    // Check if username already exists
+    const existingUsername = await this.databaseService.staff.findUnique({
+      where: { username: staffData.username }
+    });
+
+    if (existingUsername) {
+      throw new BadRequestException("Username already exists");
+    }
+
+    // Check if email already exists
+    const existingEmail = await this.databaseService.staff.findUnique({
+      where: { email: staffData.email }
+    });
+
+    if (existingEmail) {
+      throw new BadRequestException("Email already registered");
+    }
+
+    // Generate staff ID (you might want to move this to a separate service)
+    const staffCount = await this.databaseService.staff.count();
+    const staffId = `STF${(staffCount + 1).toString().padStart(3, '0')}`;
+
+    // Hash password
+    const hashedPassword = await this.createHash(staffData.password);
+
+    // Create new staff member
+    const newStaff = await this.databaseService.staff.create({
+      data: {
+        staffId,
+        fullName: staffData.fullName,
+        username: staffData.username,
+        email: staffData.email,
+        phone: staffData.phone,
+        password: hashedPassword,
+        role: staffData.role || StaffRole.STAFF,
+        status: StaffStatus.ACTIVE,
+      }
+    });
+
+    // Generate tokens
+    const { accessToken, refreshToken } = await this.generateTokens({
+      id: newStaff.id,
+      staffId: newStaff.staffId,
+      role: newStaff.role
+    });
+
+    // Store refresh token
+    await this.storeRefreshToken({
+      id: newStaff.id,
+      refreshToken
+    });
+
+    return { 
+      id: newStaff.id, 
+      staffId: newStaff.staffId,
+      fullName: newStaff.fullName,
+      role: newStaff.role,
+      accessToken, 
+      refreshToken 
+    };
+  }
 
   async logInLocal(credentials: { username: string; password: string }) {
     const foundStaff = await this.databaseService.staff.findUnique({

@@ -31,7 +31,7 @@ model Staff {
   staffId      String      @unique // STF001, STF002, etc.
   fullName     String
   username     String      @unique
-  email        String
+  email        String      @unique 
   phone        String
   password     String      // hashed password
   role         StaffRole   @default(STAFF)
