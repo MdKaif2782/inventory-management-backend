@@ -10,11 +10,16 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  Res,
+  Req,
 } from '@nestjs/common';
 import { ProductService } from './product.service';
 import { CreateProductDto} from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { InventoryLogType } from '@prisma/client';
+import { AccessTokenGuard } from '../auth/auth.guard';
+import { Response } from 'express';
 
 @Controller('products')
 export class ProductController {
@@ -50,8 +55,10 @@ export class ProductController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string, @Query('userId') userId: string) {
-    return this.productService.remove(id, userId);
+  @UseGuards(AccessTokenGuard)
+  remove(@Param('id') id: string, @Req() req: Request) {
+    const request = req as unknown as { user: { id: string } };
+    return this.productService.remove(id, request.user.id);
   }
 
   @Get('logs/inventory')
