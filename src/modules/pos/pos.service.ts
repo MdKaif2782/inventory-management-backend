@@ -33,6 +33,8 @@ export class PosService {
     const { query, category } = searchParams;
     const where: any = {};
 
+    where.markDeleted = false;
+
     if (query) {
       where.OR = [
         { name: { contains: query, mode: 'insensitive' } },
