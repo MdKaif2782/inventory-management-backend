@@ -74,11 +74,13 @@ export class ProductService {
   async findAll(search?: string, category?: string) {
     const where: any = {};
     
+    where.markDeleted = false;
+
     if (search) {
       where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { barcode: { contains: search } },
-        { productId: { contains: search } },
+      { name: { contains: search, mode: 'insensitive' } },
+      { barcode: { contains: search } },
+      { productId: { contains: search } },
       ];
     }
     
@@ -190,8 +192,11 @@ export class ProductService {
 
   async remove(id: string, userId: string) {
     try {
-      const product = await this.databaseService.product.delete({
+      const product = await this.databaseService.product.update({
         where: { id },
+        data: {
+          markDeleted: true,
+        }
       });
       
       // Create inventory log for product deletion
