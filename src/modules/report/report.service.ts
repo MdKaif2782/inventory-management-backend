@@ -1,20 +1,20 @@
 // report.service.ts
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { 
-  ReportFilterDto, 
-  FinancialSummaryDto, 
-  MonthlyDataDto, 
-  CategoryDataDto, 
-  ProductPerformanceDto 
+import {
+  ReportFilterDto,
+  FinancialSummaryDto,
+  MonthlyDataDto,
+  CategoryDataDto,
+  ProductPerformanceDto
 } from './dto';
-import { 
-  addDays, 
-  subDays, 
-  subMonths, 
-  startOfMonth, 
-  endOfMonth, 
-  format, 
+import {
+  addDays,
+  subDays,
+  subMonths,
+  startOfMonth,
+  endOfMonth,
+  format,
   eachMonthOfInterval,
   startOfDay,
   endOfDay,
@@ -26,7 +26,7 @@ const CATEGORY_COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#0088FE', 
 
 @Injectable()
 export class ReportService {
-  constructor(private databaseService: DatabaseService) {}
+  constructor(private databaseService: DatabaseService) { }
 
   private getDateRange(filter: ReportFilterDto): { start: Date; end: Date } {
     const now = new Date();
@@ -64,16 +64,159 @@ export class ReportService {
     const periodLength = differenceInDays(currentEnd, currentStart);
     const previousEnd = startOfDay(currentStart);
     const previousStart = subDays(previousEnd, periodLength);
-    
+
     return {
       start: startOfDay(previousStart),
       end: endOfDay(previousEnd)
     };
   }
 
+  async getDashboardSummary() {
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    // 1. Total Products Count
+    const totalProducts = await this.databaseService.product.count({
+      where: { markDeleted: false }
+    });
+
+    // 2. Low Stock Alerts Count (assuming threshold of 10)
+    const lowStockAlerts = await this.databaseService.product.count({
+      where: {
+        markDeleted: false,
+        quantity: { lte: 10 }
+      }
+    });
+
+    // 3. Monthly Inbound (IN and ADDED types)
+    const monthlyInbound = await this.databaseService.inventoryLog.aggregate({
+      where: {
+        type: { in: ['IN', 'ADDED'] },
+        createdAt: {
+          gte: currentMonthStart,
+          lte: currentMonthEnd
+        }
+      },
+      _sum: { quantity: true }
+    });
+
+    // 4. Monthly Outbound (OUT type)
+    const monthlyOutbound = await this.databaseService.inventoryLog.aggregate({
+      where: {
+        type: 'OUT',
+        createdAt: {
+          gte: currentMonthStart,
+          lte: currentMonthEnd
+        }
+      },
+      _sum: { quantity: true }
+    });
+
+    // 5. Stock Movement (Last 6 months)
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+    const stockMovement = await Promise.all(
+      Array.from({ length: 6 }, async (_, i) => {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+
+        const [inbound, outbound] = await Promise.all([
+          this.databaseService.inventoryLog.aggregate({
+            where: {
+              type: { in: ['IN', 'ADDED'] },
+              createdAt: { gte: monthStart, lte: monthEnd }
+            },
+            _sum: { quantity: true }
+          }),
+          this.databaseService.inventoryLog.aggregate({
+            where: {
+              type: 'OUT',
+              createdAt: { gte: monthStart, lte: monthEnd }
+            },
+            _sum: { quantity: true }
+          })
+        ]);
+
+        return {
+          month: monthNames[monthStart.getMonth()],
+          inbound: inbound._sum.quantity || 0,
+          outbound: outbound._sum.quantity || 0
+        };
+      })
+    );
+
+    // 6. Low Stock Items List
+    const lowStockItems = await this.databaseService.product.findMany({
+      where: {
+        markDeleted: false,
+        quantity: { lte: 10 }
+      },
+      select: {
+        name: true,
+        category: true,
+        quantity: true
+      },
+      take: 3
+    });
+
+    // 7. Recent Activity
+    const recentActivity = await this.databaseService.inventoryLog.findMany({
+      include: {
+        product: { select: { name: true } },
+        user: { select: { fullName: true } }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 4
+    });
+
+    return {
+      totalProducts,
+      lowStockAlerts,
+      monthlyInbound: monthlyInbound._sum.quantity || 0,
+      monthlyOutbound: monthlyOutbound._sum.quantity || 0,
+      stockMovement: stockMovement.reverse(),
+      lowStockItems: lowStockItems.map(item => ({
+        name: item.name,
+        category: item.category,
+        current: item.quantity,
+        threshold: 10
+      })),
+      recentActivity: recentActivity.map(log => ({
+        type: log.type,
+        product: log.product.name,
+        quantity: log.quantity,
+        user: log.user.fullName,
+        time: this.formatTimeAgo(log.createdAt)
+      }))
+    };
+  }
+
+  private formatTimeAgo(date: Date): string {
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    const intervals = {
+      year: 31536000,
+      month: 2592000,
+      week: 604800,
+      day: 86400,
+      hour: 3600,
+      minute: 60
+    };
+
+    for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+      const interval = Math.floor(seconds / secondsInUnit);
+      if (interval >= 1) {
+        return `${interval} ${unit}${interval === 1 ? '' : 's'} ago`;
+      }
+    }
+
+    return 'Just now';
+  }
+
   async getFinancialSummary(filter: ReportFilterDto): Promise<FinancialSummaryDto> {
     const { start, end } = this.getDateRange(filter);
-    
+
     // Validate dates
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       throw new Error('Invalid date range');
@@ -163,20 +306,20 @@ export class ReportService {
 
   async getMonthlyData(filter: ReportFilterDto): Promise<MonthlyDataDto[]> {
     const { start, end } = this.getDateRange(filter);
-    
+
     // Validate dates
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       throw new Error('Invalid date range');
     }
 
     const months = eachMonthOfInterval({ start, end });
-    
+
     const monthlyData: MonthlyDataDto[] = [];
 
     for (const month of months) {
       const monthStart = startOfMonth(month);
       const monthEnd = endOfMonth(month);
-      
+
       const sales = await this.databaseService.sale.findMany({
         where: {
           createdAt: {
@@ -216,7 +359,7 @@ export class ReportService {
 
   async getCategoryData(filter: ReportFilterDto): Promise<CategoryDataDto[]> {
     const { start, end } = this.getDateRange(filter);
-    
+
     // Validate dates
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       throw new Error('Invalid date range');
@@ -244,7 +387,7 @@ export class ReportService {
       sale.items.forEach(item => {
         const category = item.product.category;
         const profit = (item.price - item.product.purchasePrice) * item.quantity;
-        
+
         if (categoryMap.has(category)) {
           categoryMap.set(category, categoryMap.get(category) + profit);
         } else {
@@ -270,7 +413,7 @@ export class ReportService {
 
   async getProductPerformance(filter: ReportFilterDto): Promise<ProductPerformanceDto[]> {
     const { start, end } = this.getDateRange(filter);
-    
+
     // Validate dates
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       throw new Error('Invalid date range');
@@ -297,7 +440,7 @@ export class ReportService {
     sales.forEach(sale => {
       sale.items.forEach(item => {
         const product = item.product;
-        
+
         if (productMap.has(product.id)) {
           const existing = productMap.get(product.id);
           existing.unitsSold += item.quantity;
@@ -342,7 +485,7 @@ export class ReportService {
 
     // CSV format
     let csv = 'Financial Report\n\n';
-    
+
     // Summary section
     csv += 'SUMMARY\n';
     csv += 'Metric,Value,Change\n';
@@ -350,7 +493,7 @@ export class ReportService {
     csv += `Total Cost,${summary.totalCost},${summary.costChange.toFixed(2)}%\n`;
     csv += `Net Profit,${summary.netProfit},${summary.profitChange.toFixed(2)}%\n`;
     csv += `Profit Margin,${summary.profitMargin.toFixed(2)}%,${summary.marginChange.toFixed(2)}%\n\n`;
-    
+
     // Monthly data section
     csv += 'MONTHLY DATA\n';
     csv += 'Month,Revenue,Cost,Profit\n';
@@ -358,7 +501,7 @@ export class ReportService {
       csv += `${item.month},${item.revenue},${item.cost},${item.profit}\n`;
     });
     csv += '\n';
-    
+
     // Category data section
     csv += 'CATEGORY PROFIT\n';
     csv += 'Category,Profit\n';
@@ -366,7 +509,7 @@ export class ReportService {
       csv += `${item.name},${item.value}\n`;
     });
     csv += '\n';
-    
+
     // Product performance section
     csv += 'PRODUCT PERFORMANCE\n';
     csv += 'Product ID,Product Name,Category,Units Sold,Cost Price,Selling Price,Total Revenue,Total Cost,Total Profit,Profit Margin\n';

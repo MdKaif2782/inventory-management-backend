@@ -18,6 +18,11 @@ export class ReportController {
     return this.reportService.getFinancialSummary(filter);
   }
 
+  @Get('dashboard')
+  async getDashboardSummary(@Query() filter: ReportFilterDto) {
+    return this.reportService.getDashboardSummary();
+  }
+
   @Get('monthly')
   async getMonthlyData(@Query() filter: ReportFilterDto) {
     return this.reportService.getMonthlyData(filter);
