@@ -8,6 +8,7 @@ import { ProductModule } from '../product/product.module';
 import { PosModule } from '../pos/pos.module';
 import { StaffManagementModule } from '../staff-management/staff-management.module';
 import { ReportModule } from '../report/report.module';
+import { OrderModule } from '../order/order.module';
 
 @Module({
   imports: [
@@ -19,7 +20,8 @@ import { ReportModule } from '../report/report.module';
     ProductModule,
     PosModule,
     StaffManagementModule,
-    ReportModule
+    ReportModule,
+    OrderModule
     //FirebaseModule,
   ],
   controllers: [AppController],
