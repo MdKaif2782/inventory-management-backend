@@ -204,3 +204,60 @@ model FinancialReport {
   
   @@map("financial_reports")
 }
+model Order {
+  id                  Int      @id @default(autoincrement())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Basic Information
+  fullName            String
+  phone               String
+  email               String?
+
+  // Order Type
+  orderType           OrderType
+
+  // Order Details
+  serviceDescription  String?
+  preferredDateTime   DateTime?
+  productDetails      String?
+  customRequest       String?
+  fileUrl             String?
+
+  // Delivery Information
+  deliveryMethod      DeliveryMethod
+  deliveryAddress     String?
+
+  // Confirmation
+  urgency             UrgencyLevel
+  agreement           Boolean
+
+  // Order Status (for admin)
+  status              OrderStatus @default(PENDING)
+
+  @@map("orders")
+}
+
+enum OrderType {
+  SERVICE
+  PRODUCT_PURCHASE
+  CUSTOM_REQUEST
+}
+
+enum DeliveryMethod {
+  PICKUP
+  HOME_DELIVERY
+  SERVICE_AT_LOCATION
+}
+
+enum UrgencyLevel {
+  NORMAL
+  URGENT
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
