@@ -25,37 +25,58 @@ export class OrdersService {
     });
   }
 
-  async findAllOrders(query: OrderQueryDto) {
-    const { status, orderType, page, limit, sortBy, sortOrder } = query;
-    
-    const where = {};
-    if (status) where['status'] = status;
-    if (orderType) where['orderType'] = orderType;
+async findAllOrders(query: OrderQueryDto) {
+  const {
+    status,
+    orderType,
+    page = "1",
+    limit = "10",
+    sortBy = "createdAt",
+    sortOrder = "desc",
+  } = query;
 
-    const skip = (page - 1) * limit;
-    
-    const [orders, total] = await Promise.all([
-      this.prisma.order.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: {
-          [sortBy]: sortOrder,
-        },
-      }),
-      this.prisma.order.count({ where }),
-    ]);
+  // ✅ convert strings to numbers
+  const pageNum = parseInt(page as any, 10);
+  const limitNum = parseInt(limit as any, 10);
 
-    return {
-      data: orders,
-      meta: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
+  const where: any = {};
+  if (status) where.status = status;
+  if (orderType) where.orderType = orderType;
+
+  const skip = (pageNum - 1) * limitNum;
+
+  // ✅ normalize sort order
+  const validSortOrders: ("asc" | "desc")[] = ["asc", "desc"];
+  const normalizedSortOrder: "asc" | "desc" =
+    validSortOrders.includes(sortOrder.toLowerCase() as "asc" | "desc")
+      ? (sortOrder.toLowerCase() as "asc" | "desc")
+      : "desc";
+
+  const validSortFields = ["createdAt", "updatedAt", "id"]; // adjust to your schema
+  const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+
+  const [orders, total] = await Promise.all([
+    this.prisma.order.findMany({
+      where,
+      skip,
+      take: limitNum, // ✅ number
+      orderBy: {
+        [sortField]: normalizedSortOrder,
       },
-    };
-  }
+    }),
+    this.prisma.order.count({ where }),
+  ]);
+
+  return {
+    data: orders,
+    meta: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      pages: Math.ceil(total / limitNum),
+    },
+  };
+}
 
   async findOneOrder(id: number) {
     return this.prisma.order.findUnique({
