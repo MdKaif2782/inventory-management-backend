@@ -42,6 +42,15 @@ async findAllOrders(query: OrderQueryDto) {
   const limitNum = parseInt(limit as any, 10);
 
   const where: any = {};
+
+   // ✅ exclude fake orders
+  where.NOT = {
+    AND: [
+      { phone: "N/A" },
+      { fullName: { startsWith: "Sale SALE" } }, // matches Sale SALE1, Sale SALE23...
+    ],
+  };
+
   if (status) where.status = status;
   if (orderType) where.orderType = orderType;
 
