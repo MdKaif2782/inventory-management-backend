@@ -14,6 +14,7 @@ export class FinancialSummaryDto {
   costChange: number;
   profitChange: number;
   marginChange: number;
+  netIncomeFromService: number
 }
 
 export class MonthlyDataDto {

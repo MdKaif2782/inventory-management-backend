@@ -292,6 +292,23 @@ export class ReportService {
     const profitChange = prevNetProfit > 0 ? ((netProfit - prevNetProfit) / prevNetProfit) * 100 : netProfit > 0 ? 100 : 0;
     const marginChange = profitMargin - prevProfitMargin;
 
+    
+    // Calculate net income from service orders in the current period
+    const serviceItems = await this.databaseService.orderServiceItem.findMany({
+      where: {
+      order: {
+        createdAt: {
+        gte: start,
+        lte: end,
+        },
+      },
+      },
+      select: {
+      charge: true,
+      },
+    });
+
+    const netIncomeFromService = serviceItems.reduce((sum, item) => sum + item.charge, 0);
     return {
       totalRevenue,
       totalCost,
@@ -301,6 +318,7 @@ export class ReportService {
       costChange,
       profitChange,
       marginChange,
+      netIncomeFromService
     };
   }
 
