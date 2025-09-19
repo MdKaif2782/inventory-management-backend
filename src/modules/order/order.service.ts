@@ -1,9 +1,11 @@
 // src/orders/orders.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateOrderDto, OrderType, DeliveryMethod, UrgencyLevel } from './dto/create-order.dto';
 import { UpdateOrderStatusDto, OrderStatus } from './dto/update-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { DatabaseService } from '../database/database.service';
+import { CompleteOrderDto, OrderProductItemDto } from './dto/complete-order.dto';
+import { InventoryLogType } from '@prisma/client';
 
 @Injectable()
 export class OrdersService {
@@ -112,4 +114,220 @@ async findAllOrders(query: OrderQueryDto) {
     }
     return { base64: file.base64, filename: file.filename };
   }
+async completeOrder(orderId: number, completeOrderDto: CompleteOrderDto) {
+  // 1. Verify order exists and is in valid state
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      serviceSold: true,
+      productSold: true
+    }
+  });
+
+  if (!order) {
+    throw new NotFoundException(`Order with ID ${orderId} not found`);
+  }
+
+  if (order.status === OrderStatus.COMPLETED) {
+    throw new BadRequestException('Order is already completed');
+  }
+
+  if (order.status === OrderStatus.CANCELLED) {
+    throw new BadRequestException('Cannot complete a cancelled order');
+  }
+
+  // 2. Verify staff exists
+  const staff = await this.prisma.staff.findUnique({
+    where: { staffId: completeOrderDto.staffId }
+  });
+
+  if (!staff) {
+    throw new NotFoundException(`Staff with ID ${completeOrderDto.staffId} not found`);
+  }
+
+  let totalRevenue = 0;
+  let totalCost = 0;
+  let serviceIncome = 0;
+  const productIds: string[] = [];
+
+  // 3. Process Products
+  for (const productDto of completeOrderDto.products) {
+    let product;
+    
+    if (productDto.productId) {
+      // Use existing product
+      product = await this.prisma.product.findUnique({
+        where: { id: productDto.productId }
+      });
+      
+      if (!product) {
+        throw new NotFoundException(`Product with ID ${productDto.productId} not found`);
+      }
+
+      if (product.quantity < productDto.quantity) {
+        throw new BadRequestException(`Insufficient stock for product ${product.name}`);
+      }
+
+      // Update existing product details if needed
+      product = await this.prisma.product.update({
+        where: { id: productDto.productId },
+        data: {
+          name: productDto.name,
+          category: productDto.category,
+          barcode: productDto.barcode,
+          purchasePrice: productDto.purchasePrice,
+          salePrice: productDto.salePrice,
+          quantity: { decrement: productDto.quantity },
+        }
+      });
+    } else {
+      // Create new product
+      const productIdCounter = await this.prisma.product.count();
+      const newProductId = `PRD${String(productIdCounter + 1).padStart(3, '0')}`;
+      
+      product = await this.prisma.product.create({
+        data: {
+          productId: newProductId,
+          name: productDto.name,
+          category: productDto.category,
+          barcode: productDto.barcode,
+          purchasePrice: productDto.purchasePrice,
+          salePrice: productDto.salePrice,
+          quantity: 0, // Set to 0 as it's being sold immediately
+        }
+      });
+    }
+
+    productIds.push(product.id);
+
+    // Calculate costs and revenue for this product
+    const productRevenue = productDto.quantity * productDto.salePrice;
+    const productCost = productDto.quantity * productDto.purchasePrice;
+    
+    totalRevenue += productRevenue;
+    totalCost += productCost;
+
+    // Create inventory log for product sale
+    await this.prisma.inventoryLog.create({
+      data: {
+        productId: product.id,
+        type: InventoryLogType.OUT,
+        quantity: productDto.quantity,
+        userId: staff.id,
+        note: `Product sold through order completion - Order #${orderId}`
+      }
+    });
+  }
+
+  // 4. Process Services
+  for (const serviceDto of completeOrderDto.services) {
+    serviceIncome += serviceDto.charge;
+    totalRevenue += serviceDto.charge;
+    
+    // Create order service item
+    await this.prisma.orderServiceItem.create({
+      data: {
+        orderId: orderId,
+        description: serviceDto.description,
+        charge: serviceDto.charge
+      }
+    });
+  }
+
+  // 5. Create Sale record if products were sold
+  if (completeOrderDto.products.length > 0) {
+    const saleIdCounter = await this.prisma.sale.count();
+    const newSaleId = `SALE${String(saleIdCounter + 1).padStart(3, '0')}`;
+
+    const sale = await this.prisma.sale.create({
+      data: {
+        saleId: newSaleId,
+        cashierId: staff.id,
+        total: totalRevenue - serviceIncome, // Only product revenue
+        items: {
+          create: completeOrderDto.products.map((productDto, index) => {
+            return {
+              productId: productIds[index],
+              quantity: productDto.quantity,
+              price: productDto.salePrice
+            };
+          })
+        }
+      }
+    });
+  }
+
+  // 6. Update order status and link products
+  const updatedOrder = await this.prisma.order.update({
+    where: { id: orderId },
+    data: {
+      status: OrderStatus.COMPLETED,
+      productSold: {
+        connect: productIds.map(id => ({ id }))
+      }
+    },
+    include: {
+      serviceSold: true,
+      productSold: true
+    }
+  });
+
+  // 7. Update Financial Report
+  const currentPeriod = new Date().toISOString().slice(0, 7); // YYYY-MM format
+  
+  const existingReport = await this.prisma.financialReport.findFirst({
+    where: { period: currentPeriod }
+  });
+
+  if (existingReport) {
+    await this.prisma.financialReport.update({
+      where: { id: existingReport.id },
+      data: {
+        totalRevenue: { increment: totalRevenue },
+        totalCost: { increment: totalCost },
+        netProfit: { increment: totalRevenue - totalCost },
+        netIncomeFromService: { increment: serviceIncome },
+        profitMargin: existingReport.totalRevenue + totalRevenue > 0 
+          ? ((existingReport.netProfit + (totalRevenue - totalCost)) / (existingReport.totalRevenue + totalRevenue)) * 100
+          : 0
+      }
+    });
+  } else {
+    const netProfit = totalRevenue - totalCost;
+    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+    
+    await this.prisma.financialReport.create({
+      data: {
+        period: currentPeriod,
+        totalRevenue,
+        totalCost,
+        netProfit,
+        netIncomeFromService: serviceIncome,
+        profitMargin
+      }
+    });
+  }
+
+  // 8. Create inventory logs for order completion
+  await this.prisma.inventoryLog.create({
+    data: {
+      productId: productIds[0] || null, // Use first product or null if no products
+      type: InventoryLogType.EDITED,
+      quantity: null,
+      userId: staff.id,
+      note: `Order #${orderId} completed - Revenue: $${totalRevenue.toFixed(2)}, Cost: $${totalCost.toFixed(2)}, Profit: $${(totalRevenue - totalCost).toFixed(2)}`
+    }
+  });
+
+  return {
+    order: updatedOrder,
+    financialSummary: {
+      totalRevenue: totalRevenue.toFixed(2),
+      totalCost: totalCost.toFixed(2),
+      netProfit: (totalRevenue - totalCost).toFixed(2),
+      serviceIncome: serviceIncome.toFixed(2),
+      productProfit: (totalRevenue - serviceIncome - totalCost).toFixed(2)
+    }
+  };
+}
 }

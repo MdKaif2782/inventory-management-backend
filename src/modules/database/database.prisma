@@ -25,6 +25,7 @@ model Product {
   quotationItems QuotationProductItem[]
   
   @@map("products")
+  Order Order[]
 }
 
 model Staff {
@@ -199,6 +200,7 @@ model FinancialReport {
   totalRevenue Float
   totalCost    Float
   netProfit    Float
+  netIncomeFromService  Float @default(0)
   profitMargin Float
   createdAt    DateTime @default(now())
   
@@ -208,7 +210,7 @@ model Order {
   id                  Int      @id @default(autoincrement())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
-  
+
   // Basic Information
   fullName            String
   phone               String
@@ -234,8 +236,20 @@ model Order {
 
   // Order Status (for admin)
   status              OrderStatus @default(PENDING)
+  // Relations
+  serviceSold        OrderServiceItem[]
+  productSold        Product[]
 
   @@map("orders")
+}
+
+model OrderServiceItem {
+  id              Int      @id @default(autoincrement())
+  orderId         Int
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  description     String
+  charge          Float
+  @@map("order_service_items")
 }
 
 model File {

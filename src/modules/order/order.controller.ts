@@ -12,6 +12,9 @@ import {
   Res,
   NotFoundException,
   UseInterceptors,
+  HttpException,
+  HttpStatus,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
@@ -20,6 +23,7 @@ import { UpdateOrderStatusDto } from './dto/update-order.dto';
 import { Response } from 'express';
 import mime from 'mime';
 import { FileInterceptor } from "@nestjs/platform-express";
+import { CompleteOrderDto } from './dto/complete-order.dto';
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
@@ -28,6 +32,104 @@ export class OrdersController {
   create(@Body() createOrderDto: CreateOrderDto) {
     return this.ordersService.createOrder(createOrderDto);
   }
+
+  @Post(':id/complete')
+  async completeOrder(
+    @Param('id', ParseIntPipe) orderId: number,
+    @Body() completeOrderDto: CompleteOrderDto
+  ) {
+    try {
+      const result = await this.ordersService.completeOrder(orderId, completeOrderDto);
+      
+      return {
+        success: true,
+        message: 'Order completed successfully',
+        data: result,
+        statusCode: HttpStatus.OK
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to complete order',
+          statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  @Post(':id/preview-completion')
+  async previewOrderCompletion(
+    @Param('id', ParseIntPipe) orderId: number,
+    @Body() completeOrderDto: CompleteOrderDto
+  ) {
+    try {
+      // Calculate preview without saving
+      let totalRevenue = 0;
+      let totalCost = 0;
+      let serviceIncome = 0;
+
+      // Calculate product costs and revenue
+      for (const product of completeOrderDto.products) {
+        const productRevenue = product.quantity * product.salePrice;
+        const productCost = product.quantity * product.purchasePrice;
+        
+        totalRevenue += productRevenue;
+        totalCost += productCost;
+      }
+
+      // Calculate service income
+      for (const service of completeOrderDto.services) {
+        serviceIncome += service.charge;
+        totalRevenue += service.charge;
+      }
+
+      const netProfit = totalRevenue - totalCost;
+      const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+      return {
+        success: true,
+        message: 'Order completion preview calculated',
+        data: {
+          preview: {
+            totalRevenue: totalRevenue.toFixed(2),
+            totalCost: totalCost.toFixed(2),
+            netProfit: netProfit.toFixed(2),
+            serviceIncome: serviceIncome.toFixed(2),
+            productProfit: (totalRevenue - serviceIncome - totalCost).toFixed(2),
+            profitMargin: profitMargin.toFixed(2) + '%'
+          },
+          breakdown: {
+            products: completeOrderDto.products.map(product => ({
+              name: product.name,
+              quantity: product.quantity,
+              unitCost: product.purchasePrice,
+              unitPrice: product.salePrice,
+              totalCost: (product.quantity * product.purchasePrice).toFixed(2),
+              totalRevenue: (product.quantity * product.salePrice).toFixed(2),
+              profit: (product.quantity * (product.salePrice - product.purchasePrice)).toFixed(2)
+            })),
+            services: completeOrderDto.services.map(service => ({
+              description: service.description,
+              charge: service.charge.toFixed(2)
+            }))
+          }
+        },
+        statusCode: HttpStatus.OK
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to preview order completion',
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
 
   @Post("file")
   @UseInterceptors(FileInterceptor("file"))
