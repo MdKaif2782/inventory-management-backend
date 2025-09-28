@@ -28,3 +28,18 @@ export class EmployeeResponseDto {
     this.contact = employee.contact;
   }
 }
+
+export class SearchEmployeeDto {
+  query?: string;
+  department?: string;
+  page?: number = 1;
+  limit?: number = 10;
+}
+
+export class SearchResponseDto {
+  data: EmployeeResponseDto[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}

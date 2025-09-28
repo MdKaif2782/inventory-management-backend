@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpCode, HttpStatus, Query } from '@nestjs/common';
 import { EmployeeService } from './employee.service';
-import { BulkCreateEmployeeDto, CreateEmployeeDto, UpdateEmployeeDto } from './dto';
+import { BulkCreateEmployeeDto, CreateEmployeeDto, SearchEmployeeDto, UpdateEmployeeDto } from './dto';
 
 @Controller('employee')
 export class EmployeeController {
@@ -21,6 +21,33 @@ export class EmployeeController {
   @Get()
   async findAll() {
     return this.employeeService.findAllEmployee();
+  }
+
+   @Get('search')
+  async search(@Query() searchDto: SearchEmployeeDto) {
+    return this.employeeService.search(searchDto);
+  }
+
+  @Get('advanced-search')
+  async advancedSearch(
+    @Query('name') name?: string,
+    @Query('department') department?: string,
+    @Query('contact') contact?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.employeeService.advancedSearch({
+      name,
+      department,
+      contact,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 10,
+    });
+  }
+
+  @Get('departments')
+  async getDepartments() {
+    return this.employeeService.getDepartments();
   }
 
   @Get(':id')

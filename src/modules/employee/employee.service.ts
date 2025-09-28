@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { EmployeeResponseDto, BulkCreateEmployeeDto, CreateEmployeeDto, UpdateEmployeeDto } from './dto';
+import { EmployeeResponseDto, BulkCreateEmployeeDto, CreateEmployeeDto, UpdateEmployeeDto, SearchResponseDto, SearchEmployeeDto } from './dto';
 
 @Injectable()
 export class EmployeeService {
@@ -138,6 +138,147 @@ async createEmployee(createEmployeeDto: CreateEmployeeDto): Promise<EmployeeResp
       };
     } catch (error) {
       throw new BadRequestException('Failed to bulk create employees: ' + error.message);
+    }
+  }
+
+   // Search functionality
+  async search(searchDto: SearchEmployeeDto): Promise<SearchResponseDto> {
+    const { query, department, page = 1, limit = 10 } = searchDto;
+    const skip = (page - 1) * limit;
+
+    // Build the where condition for search
+    const where: any = {};
+
+    if (query) {
+      where.OR = [
+        {
+          name: {
+            contains: query,
+            mode: 'insensitive', // Case insensitive search
+          },
+        },
+        {
+          contact: {
+            contains: query,
+            mode: 'insensitive',
+          },
+        },
+        {
+          department: {
+            contains: query,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    if (department) {
+      where.department = {
+        contains: department,
+        mode: 'insensitive',
+      };
+    }
+
+    try {
+      const [employees, total] = await Promise.all([
+        this.databaseService.employee.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { name: 'asc' },
+        }),
+        this.databaseService.employee.count({ where }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+
+      return {
+        data: employees.map(employee => new EmployeeResponseDto(employee)),
+        total,
+        page,
+        limit,
+        totalPages,
+      };
+    } catch (error) {
+      throw new BadRequestException('Failed to search employees');
+    }
+  }
+
+  // Advanced search with multiple filters
+  async advancedSearch(filters: {
+    name?: string;
+    department?: string;
+    contact?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<SearchResponseDto> {
+    const { name, department, contact, page = 1, limit = 10 } = filters;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+
+    if (name) {
+      where.name = {
+        contains: name,
+        mode: 'insensitive',
+      };
+    }
+
+    if (department) {
+      where.department = {
+        contains: department,
+        mode: 'insensitive',
+      };
+    }
+
+    if (contact) {
+      where.contact = {
+        contains: contact,
+        mode: 'insensitive',
+      };
+    }
+
+    try {
+      const [employees, total] = await Promise.all([
+        this.databaseService.employee.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { name: 'asc' },
+        }),
+        this.databaseService.employee.count({ where }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+
+      return {
+        data: employees.map(employee => new EmployeeResponseDto(employee)),
+        total,
+        page,
+        limit,
+        totalPages,
+      };
+    } catch (error) {
+      throw new BadRequestException('Failed to search employees');
+    }
+  }
+
+  // Get all unique departments for filter dropdowns
+  async getDepartments(): Promise<string[]> {
+    try {
+      const departments = await this.databaseService.employee.findMany({
+        select: {
+          department: true,
+        },
+        distinct: ['department'],
+        orderBy: {
+          department: 'asc',
+        },
+      });
+
+      return departments.map(dept => dept.department);
+    } catch (error) {
+      throw new BadRequestException('Failed to fetch departments');
     }
   }
 }
