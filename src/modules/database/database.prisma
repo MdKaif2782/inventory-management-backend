@@ -26,6 +26,18 @@ model Product {
   
   @@map("products")
   Order Order[]
+  prevStock PreviousStock[]
+}
+
+model PreviousStock {
+  id             String     @id @default(cuid())
+  productUid     String
+  product        Product @relation(fields: [productUid], references: [id])
+  purchasePrice  Float
+  salePrice      Float
+  quantity       Int
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 }
 
 model Staff {
@@ -45,6 +57,16 @@ model Staff {
   sales        Sale[]
   
   @@map("staff")
+}
+
+model Employee {
+  id        String @id @default(cuid())
+  name      String
+  department String
+  contact   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum StaffRole {
