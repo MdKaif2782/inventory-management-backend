@@ -31,7 +31,7 @@ export class ProductController {
   }
 
     // New endpoint for stock-aware product creation
-  @Post('with-stock-tracking')
+  @Post('/restock/with-stock-tracking')
   async createWithStockTracking(@Body() createProductDto: CreateProductWithStockDto) {
     return this.productService.createWithStockTracking(createProductDto);
   }
@@ -43,7 +43,7 @@ export class ProductController {
   }
 
     // Search products for UI selection
-  @Get('search')
+  @Get('/restock/search')
   async searchProducts(@Query('q') searchTerm: string) {
     if (!searchTerm) {
       return [];
