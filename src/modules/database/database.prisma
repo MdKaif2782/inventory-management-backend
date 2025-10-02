@@ -20,25 +20,21 @@ model Product {
   markDeleted    Boolean    @default(false)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
+
+  // relations
   inventoryLogs  InventoryLog[]
   saleItems      SaleItem[]
   quotationItems QuotationProductItem[]
-  
+  orders         Order[]
+
+  // self-referential relation
+  parentGenId   String? 
+  parentGen     Product?   @relation("ProductToChildren", fields: [parentGenId], references: [id])
+  prevStock      Product[]  @relation("ProductToChildren")  // inverse side
+
   @@map("products")
-  Order Order[]
-  prevStock PreviousStock[]
 }
 
-model PreviousStock {
-  id             String     @id @default(cuid())
-  productUid     String
-  product        Product @relation(fields: [productUid], references: [id])
-  purchasePrice  Float
-  salePrice      Float
-  quantity       Int
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-}
 
 model Staff {
   id           String      @id @default(cuid())

@@ -1,7 +1,7 @@
 // product.service.ts
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { CreateProductDto } from './dto/create-product.dto';
+import { CreateProductDto, CreateProductWithStockDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { InventoryLogType, StaffRole } from '@prisma/client';
 
@@ -70,6 +70,213 @@ export class ProductService {
       throw error;
     }
   }
+
+  async createWithStockTracking(createProductDto: CreateProductWithStockDto) {
+    const { 
+      name, 
+      barcode, 
+      purchasePrice, 
+      salePrice, 
+      quantity, 
+      userId, 
+      category,
+      previousProductId 
+    } = createProductDto;
+
+    try {
+      // Case 1: Completely new product (no previousProductId provided)
+      if (!previousProductId) {
+        const productId = await this.generateProductId();
+        const generatedBarcode = barcode || await this.generateBarcode();
+
+        const product = await this.databaseService.product.create({
+          data: {
+            productId,
+            barcode: generatedBarcode,
+            name,
+            category,
+            purchasePrice,
+            salePrice,
+            quantity,
+          },
+        });
+
+        // Create inventory log
+        await this.databaseService.inventoryLog.create({
+          data: {
+            productId: product.id,
+            type: InventoryLogType.ADDED,
+            quantity,
+            userId,
+            note: 'New product added to inventory',
+          },
+        });
+
+        return {
+          product,
+          action: 'CREATED_NEW',
+          message: 'New product created successfully'
+        };
+      }
+
+      // Case 2 & 3: Restocking existing product (previousProductId provided)
+      // Find the existing product
+      const existingProduct = await this.databaseService.product.findUnique({
+        where: { 
+          id: previousProductId,
+          markDeleted: false 
+        },
+      });
+
+      if (!existingProduct) {
+        throw new NotFoundException('Previous product not found');
+      }
+
+      // Check if prices are different
+      const hasPriceDiff = existingProduct.purchasePrice !== purchasePrice || 
+                          existingProduct.salePrice !== salePrice;
+
+      // Case 2: Price difference - create new generation
+      if (hasPriceDiff) {
+        const productId = await this.generateProductId();
+        const generatedBarcode = await this.generateBarcode();
+
+        // Create new product entity with reference to previous stock
+        const newProduct = await this.databaseService.product.create({
+          data: {
+            productId,
+            barcode: generatedBarcode,
+            name,
+            category,
+            purchasePrice,
+            salePrice,
+            quantity,
+            parentGenId: existingProduct.id, // Link to previous generation
+          },
+        });
+
+        // Create inventory log for new product
+        await this.databaseService.inventoryLog.create({
+          data: {
+            productId: newProduct.id,
+            type: InventoryLogType.ADDED,
+            quantity,
+            userId,
+            note: `New stock with updated prices. Previous stock ID: ${existingProduct.productId}`,
+          },
+        });
+
+        return {
+          product: newProduct,
+          previousProduct: existingProduct,
+          action: 'CREATED_NEW_GENERATION',
+          message: 'New product generation created with updated prices'
+        };
+      }
+
+      // Case 3: No price difference - update stock of existing product
+      const updatedProduct = await this.databaseService.product.update({
+        where: { id: existingProduct.id },
+        data: {
+          quantity: existingProduct.quantity + quantity,
+        },
+      });
+
+      // Create inventory log for stock update
+      await this.databaseService.inventoryLog.create({
+        data: {
+          productId: existingProduct.id,
+          type: InventoryLogType.ADDED,
+          quantity,
+          userId,
+          note: 'Stock updated for existing product',
+        },
+      });
+
+      return {
+        product: updatedProduct,
+        action: 'STOCK_UPDATED',
+        message: 'Product stock updated successfully'
+      };
+
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException('Product with this barcode already exists');
+      }
+      throw error;
+    }
+  }
+
+  // Helper method to search products for UI selection
+  async searchProducts(searchTerm: string) {
+    return this.databaseService.product.findMany({
+      where: {
+        OR: [
+          { name: { contains: searchTerm, mode: 'insensitive' } },
+          { productId: { contains: searchTerm, mode: 'insensitive' } },
+          { barcode: { contains: searchTerm, mode: 'insensitive' } },
+        ],
+        markDeleted: false,
+      },
+      select: {
+        id: true,
+        productId: true,
+        name: true,
+        category: true,
+        barcode: true,
+        purchasePrice: true,
+        salePrice: true,
+        quantity: true,
+      },
+      take: 10,
+    });
+  }
+
+  // Get product details for pre-filling form
+  async getProductForRestock(productId: string) {
+    const product = await this.databaseService.product.findUnique({
+      where: { 
+        id: productId,
+        markDeleted: false 
+      },
+      select: {
+        id: true,
+        productId: true,
+        name: true,
+        category: true,
+        barcode: true,
+        purchasePrice: true,
+        salePrice: true,
+        quantity: true,
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return product;
+  }
+
+  // Helper method to get product lineage
+  async getProductLineage(productId: string) {
+    return this.databaseService.product.findUnique({
+      where: { id: productId },
+      include: {
+        parentGen: {
+          include: {
+            parentGen: true, // Recursive inclusion for full lineage
+          },
+        },
+        prevStock: {
+          include: {
+            prevStock: true,
+          },
+        },
+      },
+    });
+  }
+
 
   async findAll(search?: string, category?: string) {
     const where: any = {};

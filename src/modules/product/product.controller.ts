@@ -15,7 +15,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ProductService } from './product.service';
-import { CreateProductDto} from './dto/create-product.dto';
+import { CreateProductDto, CreateProductWithStockDto} from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { InventoryLogType } from '@prisma/client';
 import { AccessTokenGuard } from '../auth/auth.guard';
@@ -28,6 +28,33 @@ export class ProductController {
   @Post()
   create(@Body() createProductDto: CreateProductDto) {
     return this.productService.create(createProductDto);
+  }
+
+    // New endpoint for stock-aware product creation
+  @Post('with-stock-tracking')
+  async createWithStockTracking(@Body() createProductDto: CreateProductWithStockDto) {
+    return this.productService.createWithStockTracking(createProductDto);
+  }
+
+    // Get product details for pre-filling form
+  @Get(':id/for-restock')
+  async getProductForRestock(@Param('id') id: string) {
+    return this.productService.getProductForRestock(id);
+  }
+
+    // Search products for UI selection
+  @Get('search')
+  async searchProducts(@Query('q') searchTerm: string) {
+    if (!searchTerm) {
+      return [];
+    }
+    return this.productService.searchProducts(searchTerm);
+  }
+
+  // Get product lineage
+  @Get(':id/lineage')
+  async getProductLineage(@Param('id') id: string) {
+    return this.productService.getProductLineage(id);
   }
 
   @Get()
