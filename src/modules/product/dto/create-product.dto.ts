@@ -6,6 +6,7 @@ export class CreateProductDto {
   purchasePrice: number;
   salePrice: number;
   quantity: number;
+  variant?: string
   userId: string;
 }
 
@@ -31,6 +32,10 @@ export class CreateProductWithStockDto {
   @IsOptional()
   @IsString()
   barcode?: string;
+
+  @IsOptional()
+  @IsString()
+  variant?: string
 
   @IsOptional()
   @IsString()

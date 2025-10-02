@@ -17,6 +17,7 @@ model Product {
   purchasePrice  Float
   salePrice      Float
   quantity       Int
+  variant        String?
   markDeleted    Boolean    @default(false)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt

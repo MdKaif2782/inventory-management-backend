@@ -47,6 +47,7 @@ export class ProductService {
           purchasePrice: createProductDto.purchasePrice,
           salePrice: createProductDto.salePrice,
           quantity: createProductDto.quantity,
+          variant:  createProductDto.variant
         },
       });
 
@@ -78,6 +79,7 @@ export class ProductService {
       purchasePrice, 
       salePrice, 
       quantity, 
+      variant,
       userId, 
       category,
       previousProductId 
@@ -98,6 +100,7 @@ export class ProductService {
             purchasePrice,
             salePrice,
             quantity,
+            variant
           },
         });
 
