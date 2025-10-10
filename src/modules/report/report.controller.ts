@@ -19,7 +19,8 @@ export class ReportController {
   }
 
   @Get('dashboard')
-  async getDashboardSummary(@Query() filter: ReportFilterDto) {
+  async getDashboardSummary() {
+    // Note: Removed the filter parameter since the enhanced service method doesn't use it
     return this.reportService.getDashboardSummary();
   }
 

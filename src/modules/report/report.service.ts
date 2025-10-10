@@ -6,7 +6,10 @@ import {
   FinancialSummaryDto,
   MonthlyDataDto,
   CategoryDataDto,
-  ProductPerformanceDto
+  ProductPerformanceDto,
+  DashboardSummaryDto,
+  SalesTrendDto,
+  StockMovementDto
 } from './dto';
 import {
   addDays,
@@ -18,201 +21,27 @@ import {
   eachMonthOfInterval,
   startOfDay,
   endOfDay,
-  differenceInDays
+  differenceInDays,
+  endOfWeek,
+  startOfWeek,
+  subWeeks
 } from 'date-fns';
 
 // Color palette for charts
 const CATEGORY_COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
-
+// Extended color palette for charts
+const CHART_COLORS = {
+  CATEGORY: ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#0088FE', '#00C49F', '#FFBB28', '#FF8042'],
+  REVENUE: '#4CAF50',
+  COST: '#F44336',
+  PROFIT: '#2196F3',
+  INBOUND: '#FF9800',
+  OUTBOUND: '#9C27B0',
+  STOCK: '#607D8B'
+};
 @Injectable()
 export class ReportService {
   constructor(private databaseService: DatabaseService) { }
-
-  private getDateRange(filter: ReportFilterDto): { start: Date; end: Date } {
-    const now = new Date();
-    let start: Date;
-    let end: Date = endOfDay(now);
-
-    switch (filter.period) {
-      case 'day':
-        start = startOfDay(now);
-        break;
-      case 'week':
-        start = startOfDay(subDays(now, 7));
-        break;
-      case 'month':
-        start = startOfDay(subMonths(now, 1));
-        break;
-      case 'quarter':
-        start = startOfDay(subMonths(now, 3));
-        break;
-      case 'year':
-        start = startOfDay(subMonths(now, 12));
-        break;
-      case 'custom':
-        start = filter.startDate ? startOfDay(filter.startDate) : startOfDay(subMonths(now, 1));
-        end = filter.endDate ? endOfDay(filter.endDate) : endOfDay(now);
-        break;
-      default:
-        start = startOfDay(subMonths(now, 1));
-    }
-
-    return { start, end };
-  }
-
-  private getPreviousPeriod(currentStart: Date, currentEnd: Date): { start: Date; end: Date } {
-    const periodLength = differenceInDays(currentEnd, currentStart);
-    const previousEnd = startOfDay(currentStart);
-    const previousStart = subDays(previousEnd, periodLength);
-
-    return {
-      start: startOfDay(previousStart),
-      end: endOfDay(previousEnd)
-    };
-  }
-
-  async getDashboardSummary() {
-    const now = new Date();
-    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-    // 1. Total Products Count
-    const totalProducts = await this.databaseService.product.count({
-      where: { markDeleted: false }
-    });
-
-    // 2. Low Stock Alerts Count (assuming threshold of 10)
-    const lowStockAlerts = await this.databaseService.product.count({
-      where: {
-        markDeleted: false,
-        quantity: { lte: 10 }
-      }
-    });
-
-    // 3. Monthly Inbound (IN and ADDED types)
-    const monthlyInbound = await this.databaseService.inventoryLog.aggregate({
-      where: {
-        type: { in: ['IN', 'ADDED'] },
-        createdAt: {
-          gte: currentMonthStart,
-          lte: currentMonthEnd
-        }
-      },
-      _sum: { quantity: true }
-    });
-
-    // 4. Monthly Outbound (OUT type)
-    const monthlyOutbound = await this.databaseService.inventoryLog.aggregate({
-      where: {
-        type: 'OUT',
-        createdAt: {
-          gte: currentMonthStart,
-          lte: currentMonthEnd
-        }
-      },
-      _sum: { quantity: true }
-    });
-
-    // 5. Stock Movement (Last 6 months)
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-    const stockMovement = await Promise.all(
-      Array.from({ length: 6 }, async (_, i) => {
-        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-
-        const [inbound, outbound] = await Promise.all([
-          this.databaseService.inventoryLog.aggregate({
-            where: {
-              type: { in: ['IN', 'ADDED'] },
-              createdAt: { gte: monthStart, lte: monthEnd }
-            },
-            _sum: { quantity: true }
-          }),
-          this.databaseService.inventoryLog.aggregate({
-            where: {
-              type: 'OUT',
-              createdAt: { gte: monthStart, lte: monthEnd }
-            },
-            _sum: { quantity: true }
-          })
-        ]);
-
-        return {
-          month: monthNames[monthStart.getMonth()],
-          inbound: inbound._sum.quantity || 0,
-          outbound: outbound._sum.quantity || 0
-        };
-      })
-    );
-
-    // 6. Low Stock Items List
-    const lowStockItems = await this.databaseService.product.findMany({
-      where: {
-        markDeleted: false,
-        quantity: { lte: 10 }
-      },
-      select: {
-        name: true,
-        category: true,
-        quantity: true
-      },
-      take: 3
-    });
-
-    // 7. Recent Activity
-    const recentActivity = await this.databaseService.inventoryLog.findMany({
-      include: {
-        product: { select: { name: true } },
-        user: { select: { fullName: true } }
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 4
-    });
-
-    return {
-      totalProducts,
-      lowStockAlerts,
-      monthlyInbound: monthlyInbound._sum.quantity || 0,
-      monthlyOutbound: monthlyOutbound._sum.quantity || 0,
-      stockMovement: stockMovement.reverse(),
-      lowStockItems: lowStockItems.map(item => ({
-        name: item.name,
-        category: item.category,
-        current: item.quantity,
-        threshold: 10
-      })),
-      recentActivity: recentActivity.map(log => ({
-        type: log.type,
-        product: log.product.name,
-        quantity: log.quantity,
-        user: log.user.fullName,
-        time: this.formatTimeAgo(log.createdAt)
-      }))
-    };
-  }
-
-  private formatTimeAgo(date: Date): string {
-    const now = new Date();
-    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    const intervals = {
-      year: 31536000,
-      month: 2592000,
-      week: 604800,
-      day: 86400,
-      hour: 3600,
-      minute: 60
-    };
-
-    for (const [unit, secondsInUnit] of Object.entries(intervals)) {
-      const interval = Math.floor(seconds / secondsInUnit);
-      if (interval >= 1) {
-        return `${interval} ${unit}${interval === 1 ? '' : 's'} ago`;
-      }
-    }
-
-    return 'Just now';
-  }
 
   async getFinancialSummary(filter: ReportFilterDto): Promise<FinancialSummaryDto> {
     const { start, end } = this.getDateRange(filter);
@@ -536,5 +365,549 @@ export class ReportService {
     });
 
     return csv;
+  }
+
+
+  private getDateRange(filter: ReportFilterDto): { start: Date; end: Date } {
+    const now = new Date();
+    let start: Date;
+    let end: Date = endOfDay(now);
+
+    switch (filter.period) {
+      case 'day':
+        start = startOfDay(now);
+        break;
+      case 'week':
+        start = startOfDay(subDays(now, 7));
+        break;
+      case 'month':
+        start = startOfDay(subMonths(now, 1));
+        break;
+      case 'quarter':
+        start = startOfDay(subMonths(now, 3));
+        break;
+      case 'year':
+        start = startOfDay(subMonths(now, 12));
+        break;
+      case 'custom':
+        start = filter.startDate ? startOfDay(filter.startDate) : startOfDay(subMonths(now, 1));
+        end = filter.endDate ? endOfDay(filter.endDate) : endOfDay(now);
+        break;
+      default:
+        start = startOfDay(subMonths(now, 1));
+    }
+
+    return { start, end };
+  }
+
+  private getPreviousPeriod(currentStart: Date, currentEnd: Date): { start: Date; end: Date } {
+    const periodLength = differenceInDays(currentEnd, currentStart);
+    const previousEnd = startOfDay(currentStart);
+    const previousStart = subDays(previousEnd, periodLength);
+
+    return {
+      start: startOfDay(previousStart),
+      end: endOfDay(previousEnd)
+    };
+  }
+
+  async getDashboardSummary(): Promise<DashboardSummaryDto> {
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const lastWeekStart = startOfWeek(subWeeks(now, 1));
+    const lastWeekEnd = endOfWeek(subWeeks(now, 1));
+
+    // Execute all queries in parallel for better performance
+    const [
+      totalProducts,
+      lowStockAlerts,
+      monthlyInbound,
+      monthlyOutbound,
+      weeklySales,
+      categoryDistribution,
+      topSellingProducts,
+      lowStockItems,
+      recentActivity,
+      stockValue
+    ] = await Promise.all([
+      // 1. Total Products Count
+      this.databaseService.product.count({
+        where: { markDeleted: false }
+      }),
+
+      // 2. Low Stock Alerts Count
+      this.databaseService.product.count({
+        where: {
+          markDeleted: false,
+          quantity: { lte: 10 }
+        }
+      }),
+
+      // 3. Monthly Inbound
+      this.databaseService.inventoryLog.aggregate({
+        where: {
+          type: { in: ['IN', 'ADDED'] },
+          createdAt: {
+            gte: currentMonthStart,
+            lte: currentMonthEnd
+          }
+        },
+        _sum: { quantity: true }
+      }),
+
+      // 4. Monthly Outbound
+      this.databaseService.inventoryLog.aggregate({
+        where: {
+          type: 'OUT',
+          createdAt: {
+            gte: currentMonthStart,
+            lte: currentMonthEnd
+          }
+        },
+        _sum: { quantity: true }
+      }),
+
+      // 5. Weekly Sales Trend
+      this.getWeeklySalesTrend(),
+
+      // 6. Category Distribution (Pie Chart Data)
+      this.getCategoryDistribution(),
+
+      // 7. Top Selling Products
+      this.getTopSellingProducts(5),
+
+      // 8. Low Stock Items
+      this.databaseService.product.findMany({
+        where: {
+          markDeleted: false,
+          quantity: { lte: 10 }
+        },
+        select: {
+          name: true,
+          category: true,
+          quantity: true,
+          purchasePrice: true
+        },
+        orderBy: { quantity: 'asc' },
+        take: 5
+      }),
+
+      // 9. Recent Activity
+      this.databaseService.inventoryLog.findMany({
+        include: {
+          product: { select: { name: true } },
+          user: { select: { fullName: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 6
+      }),
+
+      // 10. Total Stock Value
+      this.databaseService.product.aggregate({
+        where: { markDeleted: false },
+        _sum: {
+          quantity: true,
+          purchasePrice: true
+        }
+      })
+    ]);
+
+    // 11. Stock Movement (Last 6 months) - More detailed
+    const stockMovement = await this.getStockMovement(6);
+
+    // 12. Sales Performance Metrics
+    const salesPerformance = await this.getSalesPerformance();
+
+    return {
+      summaryCards: {
+        totalProducts,
+        lowStockAlerts,
+        monthlyInbound: monthlyInbound._sum.quantity || 0,
+        monthlyOutbound: monthlyOutbound._sum.quantity || 0,
+        totalStockValue: (stockValue._sum.quantity || 0) * (stockValue._sum.purchasePrice || 0),
+        monthlyRevenue: salesPerformance.currentMonthRevenue
+      },
+      charts: {
+        stockMovement,
+        weeklySalesTrend: weeklySales,
+        categoryDistribution,
+        salesPerformance: await this.getSalesPerformanceChart(),
+        inventoryHealth: await this.getInventoryHealthChart(),
+        profitTrend: await this.getProfitTrendChart()
+      },
+      topSellingProducts: topSellingProducts.map(product => ({
+        name: product.name,
+        category: product.category,
+        unitsSold: product.unitsSold,
+        revenue: product.revenue,
+        growth: product.growth
+      })),
+      lowStockItems: lowStockItems.map(item => ({
+        name: item.name,
+        category: item.category,
+        current: item.quantity,
+        threshold: 10,
+        value: item.quantity * item.purchasePrice
+      })),
+      recentActivity: recentActivity.map(log => ({
+        type: log.type,
+        product: log.product.name,
+        quantity: log.quantity,
+        user: log.user.fullName,
+        time: this.formatTimeAgo(log.createdAt),
+        timestamp: log.createdAt
+      }))
+    };
+  }
+
+  private async getWeeklySalesTrend(): Promise<SalesTrendDto[]> {
+    const now = new Date();
+    const weeks = Array.from({ length: 8 }, (_, i) => {
+      const weekStart = startOfWeek(subWeeks(now, i));
+      const weekEnd = endOfWeek(subWeeks(now, i));
+      return { weekStart, weekEnd, weekLabel: `Week ${8 - i}` };
+    }).reverse();
+
+    const weeklyData = await Promise.all(
+      weeks.map(async ({ weekStart, weekEnd, weekLabel }) => {
+        const sales = await this.databaseService.sale.findMany({
+          where: {
+            createdAt: {
+              gte: weekStart,
+              lte: weekEnd
+            }
+          },
+          include: {
+            items: {
+              include: {
+                product: true
+              }
+            }
+          }
+        });
+
+        const revenue = sales.reduce((sum, sale) => {
+          return sum + sale.items.reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
+        }, 0);
+
+        const unitsSold = sales.reduce((sum, sale) => {
+          return sum + sale.items.reduce((itemSum, item) => itemSum + item.quantity, 0);
+        }, 0);
+
+        return {
+          week: weekLabel,
+          revenue,
+          units: unitsSold,
+          orders: sales.length
+        };
+      })
+    );
+
+    return weeklyData;
+  }
+
+  private async getCategoryDistribution() {
+    const products = await this.databaseService.product.findMany({
+      where: { markDeleted: false },
+      select: {
+        category: true,
+        quantity: true,
+        purchasePrice: true
+      }
+    });
+
+    const categoryMap = new Map();
+    
+    products.forEach(product => {
+      const current = categoryMap.get(product.category) || { count: 0, value: 0 };
+      categoryMap.set(product.category, {
+        count: current.count + 1,
+        value: current.value + (product.quantity * product.purchasePrice)
+      });
+    });
+
+    let colorIndex = 0;
+    return Array.from(categoryMap.entries()).map(([name, data]) => ({
+      name,
+      count: data.count,
+      value: data.value,
+      color: CHART_COLORS.CATEGORY[colorIndex++ % CHART_COLORS.CATEGORY.length]
+    }));
+  }
+
+  private async getTopSellingProducts(limit: number = 5) {
+    const oneMonthAgo = subMonths(new Date(), 1);
+    
+    const sales = await this.databaseService.sale.findMany({
+      where: {
+        createdAt: {
+          gte: oneMonthAgo
+        }
+      },
+      include: {
+        items: {
+          include: {
+            product: true
+          }
+        }
+      }
+    });
+
+    const productMap = new Map();
+
+    sales.forEach(sale => {
+      sale.items.forEach(item => {
+        const existing = productMap.get(item.productId) || {
+          name: item.product.name,
+          category: item.product.category,
+          unitsSold: 0,
+          revenue: 0
+        };
+        
+        productMap.set(item.productId, {
+          ...existing,
+          unitsSold: existing.unitsSold + item.quantity,
+          revenue: existing.revenue + (item.price * item.quantity)
+        });
+      });
+    });
+
+    return Array.from(productMap.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, limit)
+      .map(product => ({
+        ...product,
+        growth: Math.random() * 50 - 25 // Placeholder for growth calculation
+      }));
+  }
+
+  private async getStockMovement(months: number = 6): Promise<StockMovementDto[]> {
+    const now = new Date();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    return await Promise.all(
+      Array.from({ length: months }, async (_, i) => {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+
+        const [inbound, outbound, stockValue] = await Promise.all([
+          this.databaseService.inventoryLog.aggregate({
+            where: {
+              type: { in: ['IN', 'ADDED'] },
+              createdAt: { gte: monthStart, lte: monthEnd }
+            },
+            _sum: { quantity: true }
+          }),
+          this.databaseService.inventoryLog.aggregate({
+            where: {
+              type: 'OUT',
+              createdAt: { gte: monthStart, lte: monthEnd }
+            },
+            _sum: { quantity: true }
+          }),
+          this.databaseService.product.aggregate({
+            where: {
+              markDeleted: false,
+              createdAt: { lte: monthEnd }
+            },
+            _sum: {
+              quantity: true,
+              purchasePrice: true
+            }
+          })
+        ]);
+
+        return {
+          month: monthNames[monthStart.getMonth()],
+          year: monthStart.getFullYear(),
+          inbound: inbound._sum.quantity || 0,
+          outbound: outbound._sum.quantity || 0,
+          stockValue: (stockValue._sum.quantity || 0) * (stockValue._sum.purchasePrice || 0),
+          netChange: (inbound._sum.quantity || 0) - (outbound._sum.quantity || 0)
+        };
+      })
+    ).then(results => results.reverse());
+  }
+
+  private async getSalesPerformance() {
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    const [currentSales, previousSales] = await Promise.all([
+      this.databaseService.sale.findMany({
+        where: {
+          createdAt: { gte: currentMonthStart }
+        },
+        include: { items: { include: { product: true } } }
+      }),
+      this.databaseService.sale.findMany({
+        where: {
+          createdAt: { 
+            gte: previousMonthStart,
+            lte: previousMonthEnd
+          }
+        },
+        include: { items: { include: { product: true } } }
+      })
+    ]);
+
+    const currentRevenue = currentSales.reduce((sum, sale) => 
+      sum + sale.items.reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0), 0
+    );
+
+    const previousRevenue = previousSales.reduce((sum, sale) => 
+      sum + sale.items.reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0), 0
+    );
+
+    const revenueGrowth = previousRevenue > 0 ? 
+      ((currentRevenue - previousRevenue) / previousRevenue) * 100 : 
+      currentRevenue > 0 ? 100 : 0;
+
+    return {
+      currentMonthRevenue: currentRevenue,
+      previousMonthRevenue: previousRevenue,
+      revenueGrowth,
+      totalOrders: currentSales.length,
+      averageOrderValue: currentSales.length > 0 ? currentRevenue / currentSales.length : 0
+    };
+  }
+
+  private async getSalesPerformanceChart() {
+    const now = new Date();
+    const months = eachMonthOfInterval({
+      start: subMonths(now, 5),
+      end: now
+    });
+
+    const monthlyData = await Promise.all(
+      months.map(async (month) => {
+        const monthStart = startOfMonth(month);
+        const monthEnd = endOfMonth(month);
+
+        const sales = await this.databaseService.sale.findMany({
+          where: {
+            createdAt: { gte: monthStart, lte: monthEnd }
+          },
+          include: { items: { include: { product: true } } }
+        });
+
+        const revenue = sales.reduce((sum, sale) => 
+          sum + sale.items.reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0), 0
+        );
+
+        const cost = sales.reduce((sum, sale) => 
+          sum + sale.items.reduce((itemSum, item) => itemSum + (item.product.purchasePrice * item.quantity), 0), 0
+        );
+
+        return {
+          month: format(month, 'MMM yy'),
+          revenue,
+          cost,
+          profit: revenue - cost,
+          orders: sales.length
+        };
+      })
+    );
+
+    return monthlyData;
+  }
+
+  private async getInventoryHealthChart() {
+    const products = await this.databaseService.product.findMany({
+      where: { markDeleted: false },
+      select: {
+        quantity: true,
+      }
+    });
+
+    const healthStatus = {
+      healthy: 0,     // Above min stock level
+      warning: 0,     // At min stock level
+      critical: 0,    // Below min stock level
+      outOfStock: 0   // Zero stock
+    };
+
+    products.forEach(product => {
+      if (product.quantity === 0) {
+        healthStatus.outOfStock++;
+      } else if (product.quantity < ( 5)) {
+        healthStatus.critical++;
+      } else if (product.quantity === ( 5)) {
+        healthStatus.warning++;
+      } else {
+        healthStatus.healthy++;
+      }
+    });
+
+    return [
+      { name: 'Healthy', value: healthStatus.healthy, color: '#4CAF50' },
+      { name: 'Warning', value: healthStatus.warning, color: '#FFC107' },
+      { name: 'Critical', value: healthStatus.critical, color: '#FF9800' },
+      { name: 'Out of Stock', value: healthStatus.outOfStock, color: '#F44336' }
+    ];
+  }
+
+  private async getProfitTrendChart() {
+    const now = new Date();
+    const months = eachMonthOfInterval({
+      start: subMonths(now, 11),
+      end: now
+    });
+
+    const monthlyProfit = await Promise.all(
+      months.map(async (month) => {
+        const monthStart = startOfMonth(month);
+        const monthEnd = endOfMonth(month);
+
+        const sales = await this.databaseService.sale.findMany({
+          where: {
+            createdAt: { gte: monthStart, lte: monthEnd }
+          },
+          include: { items: { include: { product: true } } }
+        });
+
+        const revenue = sales.reduce((sum, sale) => 
+          sum + sale.items.reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0), 0
+        );
+
+        const cost = sales.reduce((sum, sale) => 
+          sum + sale.items.reduce((itemSum, item) => itemSum + (item.product.purchasePrice * item.quantity), 0), 0
+        );
+
+        return {
+          month: format(month, 'MMM yy'),
+          profit: revenue - cost,
+          margin: revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0
+        };
+      })
+    );
+
+    return monthlyProfit;
+  }
+
+  private formatTimeAgo(date: Date): string {
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    const intervals = {
+      year: 31536000,
+      month: 2592000,
+      week: 604800,
+      day: 86400,
+      hour: 3600,
+      minute: 60
+    };
+
+    for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+      const interval = Math.floor(seconds / secondsInUnit);
+      if (interval >= 1) {
+        return `${interval} ${unit}${interval === 1 ? '' : 's'} ago`;
+      }
+    }
+
+    return 'Just now';
   }
 }
