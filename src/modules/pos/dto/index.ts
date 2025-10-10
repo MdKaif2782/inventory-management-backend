@@ -1,3 +1,6 @@
+import { Type } from "class-transformer";
+import { IsString, IsNotEmpty, IsNumber, IsPositive, IsArray, ValidateNested, Min, IsOptional } from "class-validator";
+
 // dto/index.ts
 export class SearchProductsDto {
   query?: string;
@@ -55,4 +58,43 @@ export class AddAdditionalProductToCartDto {
   purchasePrice: number;
   salePrice: number;
   quantity: number;
+}
+
+// create-bulk-sale.dto.ts
+// create-bulk-sale.dto.ts
+export class CreateBulkSaleDto {
+  @IsString()
+  @IsNotEmpty()
+  cashierId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  companyName: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BulkSaleItemDto)
+  items: BulkSaleItemDto[];
+
+  @IsNumber()
+  @Min(0)
+  discountAmount: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class BulkSaleItemDto {
+  @IsString()
+  @IsNotEmpty()
+  productId: string;
+
+  @IsNumber()
+  @IsPositive()
+  quantity: number;
+
+  @IsNumber()
+  @IsPositive()
+  price: number;
 }

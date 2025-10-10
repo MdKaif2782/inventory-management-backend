@@ -10,7 +10,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import {  PosService } from './pos.service';
-import { CreateSaleDto, AddToCartDto, SearchProductsDto } from './dto';
+import { CreateSaleDto, AddToCartDto, SearchProductsDto, CreateBulkSaleDto } from './dto';
 
 @Controller('pos')
 export class PosController {
@@ -45,5 +45,37 @@ export class PosController {
   @Get('cart/:cashierId')
   async getCart(@Param('cashierId') cashierId: string) {
     return await this.posService.getCart(cashierId);
+  }
+
+  @Post('bulk-sale')
+  async createBulkSale(@Body() createBulkSaleDto: CreateBulkSaleDto) {
+    return this.posService.createBulkSale(createBulkSaleDto);
+  }
+
+  @Get('bulk-sales')
+  async getBulkSales(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('companyName') companyName?: string,
+    @Query('cashierId') cashierId?: string,
+  ) {
+    const filters: any = {};
+    
+    if (startDate) filters.startDate = new Date(startDate);
+    if (endDate) filters.endDate = new Date(endDate);
+    if (companyName) filters.companyName = companyName;
+    if (cashierId) filters.cashierId = cashierId;
+
+    return this.posService.getBulkSales(filters);
+  }
+
+  @Get('bulk-sales/:id')
+  async getBulkSale(@Param('id') id: string) {
+    return this.posService.getBulkSaleById(id);
+  }
+
+  @Get('bulk-sales/stats/overview')
+  async getBulkSaleStats() {
+    return this.posService.getBulkSaleStats();
   }
 }

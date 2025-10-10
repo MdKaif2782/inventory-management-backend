@@ -14,9 +14,10 @@ import {
   AddServiceToCartDto, 
   AddAdditionalProductToCartDto,
   ServiceItemDto,
-  AdditionalProductDto 
+  AdditionalProductDto, 
+  CreateBulkSaleDto
 } from './dto';
-import { InventoryLogType } from '@prisma/client';
+import { InventoryLogType, SaleType } from '@prisma/client';
 
 // In-memory cart storage (in production, you might want to use Redis)
 export interface CartItem {
@@ -96,6 +97,7 @@ export class PosService {
         barcode: true,
         salePrice: true,
         quantity: true,
+        purchasePrice: true,
       },
       orderBy: { name: 'asc' },
     });
@@ -112,6 +114,7 @@ export class PosService {
         barcode: true,
         salePrice: true,
         quantity: true,
+        purchasePrice: true,
       },
     });
 
@@ -289,192 +292,529 @@ export class PosService {
     return barcode;
   }
 
+  private async generateSaleId(saleType: SaleType): Promise<string> {
+    const prefix = saleType === SaleType.BULK ? 'BULK' : 'SALE';
+    const saleCount = await this.databaseService.sale.count({
+      where: { saleType }
+    });
+    return `${prefix}${(saleCount + 1).toString().padStart(3, '0')}`;
+  }
+
   private async generateProductId(): Promise<string> {
     const productCount = await this.databaseService.product.count();
     return `PRD${(productCount + 1).toString().padStart(3, '0')}`;
   }
 
-async checkout(createSaleDto: CreateSaleDto) {
-  const { cashierId, items, services = [], additionalProducts = [] } = createSaleDto;
+  async checkout(createSaleDto: CreateSaleDto) {
+    const { cashierId, items, services = [], additionalProducts = [] } = createSaleDto;
 
-  // Verify cashier exists and is active
-  const cashier = await this.databaseService.staff.findUnique({
-    where: { id: cashierId },
-  });
-
-  if (!cashier || cashier.status !== 'ACTIVE') {
-    throw new ForbiddenException('Invalid cashier');
-  }
-
-  // Generate sale ID
-  const saleCount = await this.databaseService.sale.count();
-  const saleId = `SALE${(saleCount + 1).toString().padStart(3, '0')}`;
-
-  // Calculate totals
-  const productTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const serviceTotal = services.reduce((sum, s) => sum + s.charge, 0);
-  const additionalProductTotal = additionalProducts.reduce((sum, p) => sum + p.salePrice * p.quantity, 0);
-  const total = productTotal + serviceTotal + additionalProductTotal;
-
-  // ✅ Validate product stock before making updates
-  for (const item of items) {
-    const product = await this.databaseService.product.findUnique({
-      where: { id: item.productId },
+    // Verify cashier exists and is active
+    const cashier = await this.databaseService.staff.findUnique({
+      where: { id: cashierId },
     });
 
-    if (!product) {
-      throw new NotFoundException(`Product with ID ${item.productId} not found`);
+    if (!cashier || cashier.status !== 'ACTIVE') {
+      throw new ForbiddenException('Invalid cashier');
     }
 
-    if (product.quantity < item.quantity) {
-      throw new BadRequestException(
-        `Insufficient stock for ${product.name}. Only ${product.quantity} available`,
-      );
-    }
-  }
+    // Generate sale ID
+    const saleId = await this.generateSaleId(SaleType.REGULAR);
 
-  const createdAdditionalProducts: { id: string; quantity: number; salePrice: number }[] = [];
+    // Calculate totals
+    const productTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const serviceTotal = services.reduce((sum, s) => sum + s.charge, 0);
+    const additionalProductTotal = additionalProducts.reduce((sum, p) => sum + p.salePrice * p.quantity, 0);
+    const total = productTotal + serviceTotal + additionalProductTotal;
 
-  // Handle additional products (add new ones into DB)
-  for (const additionalProduct of additionalProducts) {
-    const productId = await this.generateProductId();
-    const barcode = additionalProduct.barcode || await this.generateBarcode();
+    // ✅ Validate product stock before making updates
+    for (const item of items) {
+      const product = await this.databaseService.product.findUnique({
+        where: { id: item.productId },
+      });
 
-    const newProduct = await this.databaseService.product.create({
-      data: {
-        productId,
-        name: additionalProduct.name,
-        category: additionalProduct.category,
-        barcode,
-        purchasePrice: additionalProduct.purchasePrice,
-        salePrice: additionalProduct.salePrice,
-        quantity: additionalProduct.quantity,
+      if (!product) {
+        throw new NotFoundException(`Product with ID ${item.productId} not found`);
       }
-    });
 
-    await this.databaseService.inventoryLog.create({
-      data: {
-        productId: newProduct.id,
-        type: InventoryLogType.ADDED,
+      if (product.quantity < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for ${product.name}. Only ${product.quantity} available`,
+        );
+      }
+    }
+
+    const createdAdditionalProducts: { id: string; quantity: number; salePrice: number }[] = [];
+
+    // Handle additional products (add new ones into DB)
+    for (const additionalProduct of additionalProducts) {
+      const productId = await this.generateProductId();
+      const barcode = additionalProduct.barcode || await this.generateBarcode();
+
+      const newProduct = await this.databaseService.product.create({
+        data: {
+          productId,
+          name: additionalProduct.name,
+          category: additionalProduct.category,
+          barcode,
+          purchasePrice: additionalProduct.purchasePrice,
+          salePrice: additionalProduct.salePrice,
+          quantity: additionalProduct.quantity,
+        }
+      });
+
+      await this.databaseService.inventoryLog.create({
+        data: {
+          productId: newProduct.id,
+          type: InventoryLogType.ADDED,
+          quantity: additionalProduct.quantity,
+          userId: cashierId,
+          note: `Added new product for sale ${saleId}`,
+        },
+      });
+
+      createdAdditionalProducts.push({
+        id: newProduct.id,
         quantity: additionalProduct.quantity,
-        userId: cashierId,
-        note: `Added new product for sale ${saleId}`,
-      },
-    });
+        salePrice: additionalProduct.salePrice
+      });
+    }
 
-    createdAdditionalProducts.push({
-      id: newProduct.id,
-      quantity: additionalProduct.quantity,
-      salePrice: additionalProduct.salePrice
-    });
-  }
+    // Create sale record
+    const saleItems = [
+      ...items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        price: item.price,
+      })),
+      ...createdAdditionalProducts.map(product => ({
+        productId: product.id,
+        quantity: product.quantity,
+        price: product.salePrice,
+      }))
+    ];
 
-  // Create sale record
-  const saleItems = [
-    ...items.map(item => ({
-      productId: item.productId,
-      quantity: item.quantity,
-      price: item.price,
-    })),
-    ...createdAdditionalProducts.map(product => ({
-      productId: product.id,
-      quantity: product.quantity,
-      price: product.salePrice,
-    }))
-  ];
-
-  const newSale = await this.databaseService.sale.create({
-    data: {
-      saleId,
-      cashierId,
-      total,
-      items: {
-        create: saleItems,
-      },
-    },
-    include: {
-      items: {
-        include: {
-          product: { select: { name: true, barcode: true } },
+    const newSale = await this.databaseService.sale.create({
+      data: {
+        saleId,
+        cashierId,
+        total,
+        saleType: SaleType.REGULAR,
+        items: {
+          create: saleItems,
         },
       },
-      cashier: { select: { fullName: true, staffId: true } },
-    },
-  });
+      include: {
+        items: {
+          include: {
+            product: { select: { name: true, barcode: true } },
+          },
+        },
+        cashier: { select: { fullName: true, staffId: true } },
+      },
+    });
 
-  // Create service order if needed
-  if (services.length > 0) {
-    await this.databaseService.order.create({
+    // Create service order if needed
+    if (services.length > 0) {
+      await this.databaseService.order.create({
+        data: {
+          fullName: `Sale ${saleId}`,
+          phone: 'N/A',
+          orderType: 'SERVICE',
+          deliveryMethod: 'PICKUP',
+          urgency: 'NORMAL',
+          agreement: true,
+          status: 'COMPLETED',
+          serviceSold: {
+            create: services.map(service => ({
+              description: service.description,
+              charge: service.charge,
+            })),
+          },
+        },
+        include: { serviceSold: true },
+      });
+    }
+
+    // Update product quantities & log sales
+    for (const item of items) {
+      const product = await this.databaseService.product.findUnique({
+        where: { id: item.productId },
+      });
+
+      await this.databaseService.product.update({
+        where: { id: item.productId },
+        data: { quantity: product.quantity - item.quantity },
+      });
+
+      await this.databaseService.inventoryLog.create({
+        data: {
+          productId: item.productId,
+          type: InventoryLogType.OUT,
+          quantity: item.quantity,
+          userId: cashierId,
+          note: `Sold in sale ${saleId}`,
+        },
+      });
+    }
+
+    // Additional products → set quantity to 0 after sale
+    for (const additionalProduct of createdAdditionalProducts) {
+      await this.databaseService.product.update({
+        where: { id: additionalProduct.id },
+        data: { quantity: 0 },
+      });
+
+      await this.databaseService.inventoryLog.create({
+        data: {
+          productId: additionalProduct.id,
+          type: InventoryLogType.OUT,
+          quantity: additionalProduct.quantity,
+          userId: cashierId,
+          note: `Sold entire stock in sale ${saleId}`,
+        },
+      });
+    }
+
+    // Clear cart
+    this.carts[cashierId] = { products: [], services: [], additionalProducts: [] };
+
+    return {
+      ...newSale,
+      serviceTotal,
+      additionalProductTotal,
+      totalServices: services.length,
+      totalAdditionalProducts: additionalProducts.length
+    };
+  }
+
+  async createBulkSale(createBulkSaleDto: CreateBulkSaleDto) {
+    const { cashierId, companyName, items, discountAmount, notes } = createBulkSaleDto;
+
+    // Verify cashier exists and is active
+    const cashier = await this.databaseService.staff.findUnique({
+      where: { id: cashierId },
+    });
+
+    if (!cashier || cashier.status !== 'ACTIVE') {
+      throw new ForbiddenException('Invalid cashier');
+    }
+
+    // Validate discount amount
+    if (discountAmount < 0) {
+      throw new BadRequestException('Discount amount cannot be negative');
+    }
+
+    // Calculate totals and validate stock
+    let subtotal = 0;
+    let totalCost = 0;
+
+    for (const item of items) {
+      const product = await this.databaseService.product.findUnique({
+        where: { id: item.productId }
+      });
+
+      if (!product) {
+        throw new NotFoundException(`Product with ID ${item.productId} not found`);
+      }
+
+      if (product.quantity < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for ${product.name}. Only ${product.quantity} available`,
+        );
+      }
+
+      subtotal += item.price * item.quantity;
+      totalCost += product.purchasePrice * item.quantity;
+    }
+
+    const totalAfterDiscount = subtotal - discountAmount;
+
+    if (totalAfterDiscount < 0) {
+      throw new BadRequestException('Discount amount cannot exceed total amount');
+    }
+
+    // Generate sale ID
+    const saleId = await this.generateSaleId(SaleType.BULK);
+
+    // Create sale record with bulk sale details
+    const bulkSale = await this.databaseService.sale.create({
       data: {
-        fullName: `Sale ${saleId}`,
-        phone: 'N/A',
-        orderType: 'SERVICE',
-        deliveryMethod: 'PICKUP',
-        urgency: 'NORMAL',
-        agreement: true,
-        status: 'COMPLETED',
-        serviceSold: {
-          create: services.map(service => ({
-            description: service.description,
-            charge: service.charge,
+        saleId,
+        cashierId,
+        total: totalAfterDiscount,
+        saleType: SaleType.BULK,
+        companyName,
+        discountAmount,
+        notes,
+        items: {
+          create: items.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
           })),
         },
       },
-      include: { serviceSold: true },
-    });
-  }
-
-  // Update product quantities & log sales
-  for (const item of items) {
-    const product = await this.databaseService.product.findUnique({
-      where: { id: item.productId },
-    });
-
-    await this.databaseService.product.update({
-      where: { id: item.productId },
-      data: { quantity: product.quantity - item.quantity },
-    });
-
-    await this.databaseService.inventoryLog.create({
-      data: {
-        productId: item.productId,
-        type: InventoryLogType.OUT,
-        quantity: item.quantity,
-        userId: cashierId,
-        note: `Sold in sale ${saleId}`,
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                name: true,
+                barcode: true,
+                purchasePrice: true,
+              },
+            },
+          },
+        },
+        cashier: {
+          select: {
+            fullName: true,
+            staffId: true,
+          },
+        },
       },
     });
+
+    // Update product quantities and create inventory logs
+    for (const item of items) {
+      const product = await this.databaseService.product.findUnique({
+        where: { id: item.productId },
+      });
+
+      // Update product quantity
+      await this.databaseService.product.update({
+        where: { id: item.productId },
+        data: { quantity: product.quantity - item.quantity },
+      });
+
+      // Create inventory log
+      await this.databaseService.inventoryLog.create({
+        data: {
+          productId: item.productId,
+          type: InventoryLogType.OUT,
+          quantity: item.quantity,
+          userId: cashierId,
+          note: `Bulk sale to ${companyName} (${saleId})`,
+        },
+      });
+    }
+
+    return {
+      ...bulkSale,
+      subtotal,
+      totalCost,
+      profit: totalAfterDiscount - totalCost
+    };
   }
 
-  // Additional products → set quantity to 0 after sale
-  for (const additionalProduct of createdAdditionalProducts) {
-    await this.databaseService.product.update({
-      where: { id: additionalProduct.id },
-      data: { quantity: 0 },
-    });
+  async getBulkSales(filters?: {
+    startDate?: Date;
+    endDate?: Date;
+    companyName?: string;
+    cashierId?: string;
+  }) {
+    const where: any = {
+      saleType: SaleType.BULK
+    };
 
-    await this.databaseService.inventoryLog.create({
-      data: {
-        productId: additionalProduct.id,
-        type: InventoryLogType.OUT,
-        quantity: additionalProduct.quantity,
-        userId: cashierId,
-        note: `Sold entire stock in sale ${saleId}`,
+    if (filters) {
+      const { startDate, endDate, companyName, cashierId } = filters;
+
+      if (startDate && endDate) {
+        where.createdAt = {
+          gte: startDate,
+          lte: endDate,
+        };
+      }
+
+      if (companyName) {
+        where.companyName = {
+          contains: companyName,
+          mode: 'insensitive',
+        };
+      }
+
+      if (cashierId) {
+        where.cashierId = cashierId;
+      }
+    }
+
+    const sales = await this.databaseService.sale.findMany({
+      where,
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                name: true,
+                barcode: true,
+                purchasePrice: true,
+              },
+            },
+          },
+        },
+        cashier: {
+          select: {
+            fullName: true,
+            staffId: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
+
+    // Calculate profit for each bulk sale
+    return sales.map(sale => {
+      const totalCost = sale.items.reduce((sum, item) => 
+        sum + (item.product.purchasePrice * item.quantity), 0
+      );
+      const profit = sale.total - totalCost;
+
+      return {
+        ...sale,
+        totalCost,
+        profit
+      };
+    });
   }
 
-  // Clear cart
-  this.carts[cashierId] = { products: [], services: [], additionalProducts: [] };
+  async getBulkSaleById(id: string) {
+    const bulkSale = await this.databaseService.sale.findFirst({
+      where: { 
+        id,
+        saleType: SaleType.BULK 
+      },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                name: true,
+                barcode: true,
+                purchasePrice: true,
+                category: true,
+              },
+            },
+          },
+        },
+        cashier: {
+          select: {
+            fullName: true,
+            staffId: true,
+            email: true,
+          },
+        },
+      },
+    });
 
-  return {
-    ...newSale,
-    serviceTotal,
-    additionalProductTotal,
-    totalServices: services.length,
-    totalAdditionalProducts: additionalProducts.length
-  };
-}
+    if (!bulkSale) {
+      throw new NotFoundException(`Bulk sale with ID ${id} not found`);
+    }
 
+    // Calculate profit
+    const totalCost = bulkSale.items.reduce((sum, item) => 
+      sum + (item.product.purchasePrice * item.quantity), 0
+    );
+    const profit = bulkSale.total - totalCost;
 
+    return {
+      ...bulkSale,
+      totalCost,
+      profit
+    };
+  }
+
+  async getBulkSaleStats() {
+    const bulkSales = await this.databaseService.sale.findMany({
+      where: { saleType: SaleType.BULK },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                purchasePrice: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Calculate stats manually
+    const totalSales = bulkSales.length;
+    const totalRevenue = bulkSales.reduce((sum, sale) => sum + sale.total, 0);
+    const totalDiscount = bulkSales.reduce((sum, sale) => sum + (sale.discountAmount || 0), 0);
+    
+    const totalProfit = bulkSales.reduce((sum, sale) => {
+      const saleCost = sale.items.reduce((costSum, item) => 
+        costSum + (item.product.purchasePrice * item.quantity), 0
+      );
+      return sum + (sale.total - saleCost);
+    }, 0);
+
+    const companyStats = await this.databaseService.sale.groupBy({
+      by: ['companyName'],
+      where: { saleType: SaleType.BULK },
+      _sum: {
+        total: true,
+        discountAmount: true,
+      },
+      _count: {
+        id: true,
+      },
+      orderBy: {
+        _sum: {
+          total: 'desc',
+        },
+      },
+    });
+
+    // Calculate profit for each company
+    const companyStatsWithProfit = await Promise.all(
+      companyStats.map(async (company) => {
+        const companySales = await this.databaseService.sale.findMany({
+          where: { 
+            saleType: SaleType.BULK,
+            companyName: company.companyName 
+          },
+          include: {
+            items: {
+              include: {
+                product: {
+                  select: {
+                    purchasePrice: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const companyProfit = companySales.reduce((sum, sale) => {
+          const saleCost = sale.items.reduce((costSum, item) => 
+            costSum + (item.product.purchasePrice * item.quantity), 0
+          );
+          return sum + (sale.total - saleCost);
+        }, 0);
+
+        return {
+          ...company,
+          _sum: {
+            ...company._sum,
+            profit: companyProfit
+          }
+        };
+      })
+    );
+
+    return {
+      totalSales,
+      totalRevenue,
+      totalProfit,
+      totalDiscount,
+      companyStats: companyStatsWithProfit
+    };
+  }
 }

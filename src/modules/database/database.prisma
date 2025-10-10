@@ -34,6 +34,7 @@ model Product {
   prevStock      Product[]  @relation("ProductToChildren")  // inverse side
 
   @@map("products")
+  bulkSaleItem BulkSaleItem[]
 }
 
 
@@ -54,6 +55,7 @@ model Staff {
   sales        Sale[]
   
   @@map("staff")
+  bulkSale BulkSale[]
 }
 
 model Employee {
@@ -76,29 +78,73 @@ enum StaffStatus {
   INACTIVE
 }
 
+// schema.prisma
+
+enum SaleType {
+  REGULAR
+  BULK
+}
+
 model Sale {
-  id        String     @id @default(cuid())
-  saleId    String     @unique // SALE001, etc.
-  cashierId String
-  cashier   Staff      @relation(fields: [cashierId], references: [id])
-  items     SaleItem[]
-  total     Float
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id            String    @id @default(cuid())
+  saleId        String    @unique
+  cashierId     String
+  cashier       Staff     @relation(fields: [cashierId], references: [id])
+  items         SaleItem[]
+  total         Float
+  saleType      SaleType  @default(REGULAR)
+  companyName   String?   // For bulk sales
+  discountAmount Float?   // For bulk sales
+  notes         String?   // For bulk sales
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   
   @@map("sales")
 }
 
 model SaleItem {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   saleId    String
-  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale      Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
   quantity  Int
-  price     Float    // snapshot of price at time of sale
+  price     Float   // snapshot of price at time of sale
   
   @@map("sale_items")
+}
+
+model BulkSale {
+  id              String      @id @default(cuid())
+  saleId          String      @unique
+  cashierId       String
+  companyName     String
+  subtotal        Float
+  discountAmount  Float       @default(0)
+  total           Float
+  totalCost       Float
+  profit          Float
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  items           BulkSaleItem[]
+  cashier         Staff       @relation(fields: [cashierId], references: [id])
+
+  @@map("bulk_sales")
+}
+
+model BulkSaleItem {
+  id          String   @id @default(cuid())
+  bulkSaleId  String
+  productId   String
+  quantity    Int
+  price       Float
+
+  bulkSale    BulkSale @relation(fields: [bulkSaleId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@map("bulk_sale_items")
 }
 
 model InventoryLog {
