@@ -53,6 +53,10 @@ export class CompleteOrderDto {
   @Type(() => OrderServiceItemDto)
   services: OrderServiceItemDto[];
 
+  @IsOptional()
+  @IsNumber()
+  idCardPrintingCharge?: number;
+
   @IsString()
   @IsNotEmpty()
   staffId: string; // ID of staff completing the order

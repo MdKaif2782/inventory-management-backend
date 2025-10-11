@@ -149,8 +149,8 @@ model BulkSaleItem {
 
 model InventoryLog {
   id         String         @id @default(cuid())
-  productId  String
-  product    Product        @relation(fields: [productId], references: [id])
+  productId  String?
+  product    Product?        @relation(fields: [productId], references: [id])
   type       InventoryLogType
   quantity   Int?
   userId     String
@@ -291,6 +291,11 @@ model Order {
   customRequest       String?
   fileUrl             String?
 
+  // ID Card Specific Fields (for bulk ID card orders)
+  idCardData          Json?    // Array of JSON objects for ID card data
+  idCardTemplate      String?  // Template name or identifier
+  idCardCount         Int?     // Total number of ID cards in this order
+
   // Delivery Information
   deliveryMethod      DeliveryMethod
   deliveryAddress     String?
@@ -301,6 +306,7 @@ model Order {
 
   // Order Status (for admin)
   status              OrderStatus @default(PENDING)
+  
   // Relations
   serviceSold        OrderServiceItem[]
   productSold        Product[]
@@ -329,6 +335,7 @@ enum OrderType {
   SERVICE
   PRODUCT_PURCHASE
   CUSTOM_REQUEST
+  IDCARD_ORDER
 }
 
 enum DeliveryMethod {

@@ -1,4 +1,5 @@
 // src/orders/dto/create-order.dto.ts
+import { OrderType } from '@prisma/client';
 import {
   IsString,
   IsEmail,
@@ -6,13 +7,9 @@ import {
   IsEnum,
   IsBoolean,
   IsDateString,
+  IsJSON,
+  IsNumber,
 } from 'class-validator';
-
-export enum OrderType {
-  SERVICE = 'SERVICE',
-  PRODUCT_PURCHASE = 'PRODUCT_PURCHASE',
-  CUSTOM_REQUEST = 'CUSTOM_REQUEST',
-}
 
 export enum DeliveryMethod {
   PICKUP = 'PICKUP',
@@ -71,4 +68,16 @@ export class CreateOrderDto {
 
   @IsBoolean()
   agreement: boolean;
+
+  @IsOptional()
+  idCardData?: any; // JSON array of ID card objects
+
+  @IsOptional()
+  @IsString()
+  idCardTemplate?: string;
+
+  @IsOptional()
+  @IsNumber()
+  idCardCount?: number;
+  
 }

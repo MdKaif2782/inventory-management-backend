@@ -18,19 +18,38 @@ import {
 } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
-import { OrdersService } from './order.service';
 import { UpdateOrderStatusDto } from './dto/update-order.dto';
 import { Response } from 'express';
 import mime from 'mime';
 import { FileInterceptor } from "@nestjs/platform-express";
 import { CompleteOrderDto } from './dto/complete-order.dto';
+import { OrdersService } from './order.service';
+
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  create(@Body() createOrderDto: CreateOrderDto) {
-    return this.ordersService.createOrder(createOrderDto);
+  async create(@Body() createOrderDto: CreateOrderDto) {
+    try {
+      const order = await this.ordersService.createOrder(createOrderDto);
+      
+      return {
+        success: true,
+        message: 'Order created successfully',
+        data: order,
+        statusCode: HttpStatus.CREATED
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to create order',
+          statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Post(':id/complete')
@@ -85,6 +104,12 @@ export class OrdersController {
         totalRevenue += service.charge;
       }
 
+      // Add ID card printing charge if provided
+      if (completeOrderDto.idCardPrintingCharge) {
+        serviceIncome += completeOrderDto.idCardPrintingCharge;
+        totalRevenue += completeOrderDto.idCardPrintingCharge;
+      }
+
       const netProfit = totalRevenue - totalCost;
       const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
@@ -113,7 +138,13 @@ export class OrdersController {
             services: completeOrderDto.services.map(service => ({
               description: service.description,
               charge: service.charge.toFixed(2)
-            }))
+            })),
+            ...(completeOrderDto.idCardPrintingCharge && {
+              idCardPrinting: {
+                description: 'ID Card Printing Service',
+                charge: completeOrderDto.idCardPrintingCharge.toFixed(2)
+              }
+            })
           }
         },
         statusCode: HttpStatus.OK
@@ -130,11 +161,28 @@ export class OrdersController {
     }
   }
 
-
   @Post("file")
   @UseInterceptors(FileInterceptor("file"))
   async uploadFile(@UploadedFile() file: Express.Multer.File) {
-    return await this.ordersService.uploadFile(file);
+    try {
+      const fileUrl = await this.ordersService.uploadFile(file);
+      
+      return {
+        success: true,
+        message: 'File uploaded successfully',
+        data: { fileUrl },
+        statusCode: HttpStatus.CREATED
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to upload file',
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Get("file/:id/:filename")
@@ -157,28 +205,143 @@ export class OrdersController {
       res.send(Buffer.from(base64, "base64"));
     } catch (error) {
       if (error instanceof NotFoundException) {
-        res.status(404).json({ message: error.message });
+        res.status(404).json({ 
+          success: false,
+          message: error.message,
+          statusCode: 404
+        });
       } else {
-        res.status(500).json({ message: "Internal server error" });
+        res.status(500).json({ 
+          success: false,
+          message: "Internal server error",
+          statusCode: 500
+        });
       }
     }
   }
 
   @Get()
-  findAll(@Query() query: OrderQueryDto) {
-    return this.ordersService.findAllOrders(query);
+  async findAll(@Query() query: OrderQueryDto) {
+    try {
+      const result = await this.ordersService.findAllOrders(query);
+      
+      return {
+        success: true,
+        message: 'Orders retrieved successfully',
+        data: result.data,
+        meta: result.meta,
+        statusCode: HttpStatus.OK
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to retrieve orders',
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  // New endpoint for ID card orders
+  @Get('id-card/get')
+  async findIdCardOrders(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    try {
+      const result = await this.ordersService.findIdCardOrders({ page, limit });
+      
+      return {
+        success: true,
+        message: 'ID card orders retrieved successfully',
+        data: result.data,
+        meta: result.meta,
+        statusCode: HttpStatus.OK
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to retrieve ID card orders',
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOneOrder(+id);
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    try {
+      const order = await this.ordersService.findOneOrder(id);
+      
+      return {
+        success: true,
+        message: 'Order retrieved successfully',
+        data: order,
+        statusCode: HttpStatus.OK
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to retrieve order',
+          statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  // New endpoint for ID card order details
+  @Get(':id/id-card-details')
+  async getIdCardOrderDetails(@Param('id', ParseIntPipe) id: number) {
+    try {
+      const order = await this.ordersService.getIdCardOrderDetails(id);
+      
+      return {
+        success: true,
+        message: 'ID card order details retrieved successfully',
+        data: order,
+        statusCode: HttpStatus.OK
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to retrieve ID card order details',
+          statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Patch(':id/status')
-  updateStatus(
-    @Param('id') id: string,
+  async updateStatus(
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateOrderStatusDto: UpdateOrderStatusDto,
   ) {
-    return this.ordersService.updateOrderStatus(+id, updateOrderStatusDto);
+    try {
+      const order = await this.ordersService.updateOrderStatus(id, updateOrderStatusDto);
+      
+      return {
+        success: true,
+        message: 'Order status updated successfully',
+        data: order,
+        statusCode: HttpStatus.OK
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to update order status',
+          statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        },
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 }

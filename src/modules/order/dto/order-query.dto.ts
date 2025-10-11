@@ -1,8 +1,8 @@
 // src/orders/dto/order-query.dto.ts
 import { IsEnum, IsOptional, IsNumber, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OrderType } from './create-order.dto';
 import { OrderStatus } from './update-order.dto';
+import { OrderType } from '@prisma/client';
 
 export class OrderQueryDto {
   @IsOptional()
