@@ -39,6 +39,7 @@ const CHART_COLORS = {
   OUTBOUND: '#9C27B0',
   STOCK: '#607D8B'
 };
+
 @Injectable()
 export class ReportService {
   constructor(private databaseService: DatabaseService) { }
@@ -121,23 +122,23 @@ export class ReportService {
     const profitChange = prevNetProfit > 0 ? ((netProfit - prevNetProfit) / prevNetProfit) * 100 : netProfit > 0 ? 100 : 0;
     const marginChange = profitMargin - prevProfitMargin;
 
-    
     // Calculate net income from service orders in the current period
     const serviceItems = await this.databaseService.orderServiceItem.findMany({
       where: {
-      order: {
-        createdAt: {
-        gte: start,
-        lte: end,
+        order: {
+          createdAt: {
+            gte: start,
+            lte: end,
+          },
         },
       },
-      },
       select: {
-      charge: true,
+        charge: true,
       },
     });
 
     const netIncomeFromService = serviceItems.reduce((sum, item) => sum + item.charge, 0);
+    
     return {
       totalRevenue,
       totalCost,
@@ -367,7 +368,6 @@ export class ReportService {
     return csv;
   }
 
-
   private getDateRange(filter: ReportFilterDto): { start: Date; end: Date } {
     const now = new Date();
     let start: Date;
@@ -444,7 +444,7 @@ export class ReportService {
         }
       }),
 
-      // 3. Monthly Inbound
+      // 3. Monthly Inbound - Updated to handle optional product
       this.databaseService.inventoryLog.aggregate({
         where: {
           type: { in: ['IN', 'ADDED'] },
@@ -456,7 +456,7 @@ export class ReportService {
         _sum: { quantity: true }
       }),
 
-      // 4. Monthly Outbound
+      // 4. Monthly Outbound - Updated to handle optional product
       this.databaseService.inventoryLog.aggregate({
         where: {
           type: 'OUT',
@@ -493,10 +493,12 @@ export class ReportService {
         take: 5
       }),
 
-      // 9. Recent Activity
+      // 9. Recent Activity - Updated to handle optional product
       this.databaseService.inventoryLog.findMany({
         include: {
-          product: { select: { name: true } },
+          product: { 
+            select: { name: true } 
+          },
           user: { select: { fullName: true } }
         },
         orderBy: { createdAt: 'desc' },
@@ -550,10 +552,11 @@ export class ReportService {
         threshold: 10,
         value: item.quantity * item.purchasePrice
       })),
+      // Updated to handle optional product
       recentActivity: recentActivity.map(log => ({
         type: log.type,
-        product: log.product.name,
-        quantity: log.quantity,
+        product: log.product?.name || 'Unknown Product', // Handle null product
+        quantity: log.quantity || 0,
         user: log.user.fullName,
         time: this.formatTimeAgo(log.createdAt),
         timestamp: log.createdAt
@@ -692,6 +695,7 @@ export class ReportService {
         const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
 
         const [inbound, outbound, stockValue] = await Promise.all([
+          // Updated to handle optional product
           this.databaseService.inventoryLog.aggregate({
             where: {
               type: { in: ['IN', 'ADDED'] },
@@ -699,6 +703,7 @@ export class ReportService {
             },
             _sum: { quantity: true }
           }),
+          // Updated to handle optional product
           this.databaseService.inventoryLog.aggregate({
             where: {
               type: 'OUT',
@@ -833,9 +838,9 @@ export class ReportService {
     products.forEach(product => {
       if (product.quantity === 0) {
         healthStatus.outOfStock++;
-      } else if (product.quantity < ( 5)) {
+      } else if (product.quantity < 5) {
         healthStatus.critical++;
-      } else if (product.quantity === ( 5)) {
+      } else if (product.quantity === 5) {
         healthStatus.warning++;
       } else {
         healthStatus.healthy++;
