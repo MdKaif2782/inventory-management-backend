@@ -56,17 +56,99 @@ model Staff {
   
   @@map("staff")
   bulkSale BulkSale[]
+  salaryPaymentsProcessed SalaryPayment[]
 }
 
+// Employee Model (updated with salary fields)
 model Employee {
-  id        String @id @default(cuid())
-  name      String
-  department String
-  contact   String
+  id              String         @id @default(cuid())
+  employeeId      String         @unique // MJE-001, MJE-002, etc.
+  name            String
+  designation     String
+  department      String?
+  contact         String
+  email           String?        @unique
+  status          EmployeeStatus @default(ACTIVE)
+  
+  // Salary Structure
+  totalSalary     Float          // 100% total salary
+  leaveGranted    Int            @default(4) // Fixed 4 days leave per month
+  advanceBalance  Float          @default(0)
+  
+  // 23% Breakdown (stored as JSON for flexibility)
+  salaryBreakdown Json           // Contains { medical: number, tada: number, mobile: number, others: number }
+  
+  // Relations
+  salaryPayments  SalaryPayment[]
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@map("employees")
 }
+
+// Salary Payment Model (tracks monthly payments)
+model SalaryPayment {
+  id                String            @id @default(cuid())
+  paymentNumber     String            @unique // SAL-2024-01-001
+  employeeId        String
+  employee          Employee          @relation(fields: [employeeId], references: [id])
+  
+  // Payment Period
+  month             String            // e.g., "January", "February"
+  year              Int               // e.g., 2024
+  paymentDate       DateTime          @default(now())
+  
+  // Salary Calculation Details
+  runningMonthSalary    Float         // Base salary for the month (after leave adjustments)
+  overtimeHours         Float         @default(0)
+  overtimeAmount        Float         @default(0)
+  festivalBonus         Float         @default(0)
+  
+  // Deductions
+  deductions        Json              // Contains { advanceBalance: number, excessMoney: number, others: number }
+  totalDeductions   Float             @default(0)
+  
+  // Final Amounts
+  totalSalary       Float             // runningMonthSalary + overtimeAmount + festivalBonus
+  finalPayable      Float             // totalSalary - totalDeductions
+  
+  // Payment Method Split (important for your requirement)
+  paidInCash        Float             @default(0)
+  paidInBank        Float             @default(0)
+  
+  // Payment Status
+  status            SalaryPaymentStatus @default(PENDING)
+  remarks           String?
+  
+  // Audit Fields
+  processedById     String?
+  processedBy       Staff?            @relation(fields: [processedById], references: [id])
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Ensure one payment per employee per month
+  @@unique([employeeId, month, year])
+  @@map("salary_payments")
+}
+
+// Employee Status Enum
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+// Salary Payment Status Enum
+enum SalaryPaymentStatus {
+  PENDING
+  PAID
+  PARTIALLY_PAID
+  CANCELLED
+}
+
 
 enum StaffRole {
   ADMIN

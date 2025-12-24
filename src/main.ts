@@ -24,6 +24,15 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    })
+  );
+  
+
   console.log(`Listening on port ${process.env.PORT}`);
   const port = process.env.PORT || 3000;
   await app.listen(port);
