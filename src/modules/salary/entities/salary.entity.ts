@@ -74,8 +74,8 @@ export class SalaryCalculation {
     finalPayable: number;
   } {
     // Calculate hourly rate (assuming 26 working days in month, 8 hours per day)
-    const dailySalary = this.employee.totalSalary / 26;
-    const hourlyRate = dailySalary / 8;
+    const dailySalary = this.employee.totalSalary*0.47 / 30;
+    const hourlyRate = dailySalary / 5;
     
     // Base salary for the month
     const runningMonthSalary = this.employee.totalSalary;
