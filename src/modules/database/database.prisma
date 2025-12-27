@@ -110,9 +110,8 @@ model SalaryPayment {
   totalDeductions   Float             @default(0)
 
   //new deductions meal and absent
-  absentDays Int?
+  absentDays Int? 
   mealDays Int?
-  
   // Final Amounts
   totalSalary       Float             // runningMonthSalary + overtimeAmount + festivalBonus
   finalPayable      Float             // totalSalary - totalDeductions
