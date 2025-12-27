@@ -195,6 +195,16 @@ export class EmployeeSalaryDto {
   festivalBonus?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  mealDays?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  absentDays?: number;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => DeductionsDto)
   deductions?: DeductionsDto;

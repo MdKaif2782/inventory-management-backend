@@ -314,6 +314,8 @@ export class SalaryService {
               runningMonthSalary: calculated.runningMonthSalary,
               overtimeHours: payment.overtimeHours || 0,
               overtimeAmount: calculated.overtimeAmount,
+              absentDays: payment.absentDays,
+              mealDays: payment.mealDays,
               festivalBonus: calculated.festivalBonus,
               deductions: toPrismaJson(payment.deductions || {}),
               totalDeductions: calculated.totalDeductions,

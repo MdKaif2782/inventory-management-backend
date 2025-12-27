@@ -108,6 +108,10 @@ model SalaryPayment {
   // Deductions
   deductions        Json              // Contains { advanceBalance: number, excessMoney: number, others: number }
   totalDeductions   Float             @default(0)
+
+  //new deductions meal and absent
+  absentDays Int?
+  mealDays Int?
   
   // Final Amounts
   totalSalary       Float             // runningMonthSalary + overtimeAmount + festivalBonus
