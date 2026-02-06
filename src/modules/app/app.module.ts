@@ -10,6 +10,7 @@ import { StaffManagementModule } from '../staff-management/staff-management.modu
 import { ReportModule } from '../report/report.module';
 import { OrderModule } from '../order/order.module';
 import { SalaryModule } from '../salary/salary.module';
+import { AccountingModule } from '../accounting/accounting.module';
 
 @Module({
   imports: [
@@ -23,7 +24,8 @@ import { SalaryModule } from '../salary/salary.module';
     StaffManagementModule,
     ReportModule,
     OrderModule,
-    SalaryModule
+    SalaryModule,
+    AccountingModule,
     //FirebaseModule,
   ],
   controllers: [AppController],

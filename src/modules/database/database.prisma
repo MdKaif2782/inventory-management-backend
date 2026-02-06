@@ -440,3 +440,48 @@ enum OrderStatus {
   COMPLETED
   CANCELLED
 }
+
+// ==================== PETTY CASH / ACCOUNTING ====================
+
+model Pocket {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  transactions PocketTransaction[]
+
+  @@map("pockets")
+}
+
+model PocketTransaction {
+  id                String                   @id @default(cuid())
+  pocketId          String
+  pocket            Pocket                   @relation(fields: [pocketId], references: [id], onDelete: Cascade)
+  type              PocketTransactionType
+  amount            Float
+  description       String?
+  category          String
+  customCategory    String?
+  modeOfPayment     ModeOfPayment?
+  hasDetailAttached Boolean                  @default(false)
+  date              DateTime
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([pocketId])
+  @@index([date])
+  @@index([type])
+  @@map("pocket_transactions")
+}
+
+enum PocketTransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum ModeOfPayment {
+  CASH
+  BANK_TRANSFER
+}
