@@ -20,8 +20,12 @@ export class ReportController {
 
   @Get('dashboard')
   async getDashboardSummary() {
-    // Note: Removed the filter parameter since the enhanced service method doesn't use it
     return this.reportService.getDashboardSummary();
+  }
+
+  @Get('dashboard/enhanced')
+  async getEnhancedDashboard() {
+    return this.reportService.getEnhancedDashboard();
   }
 
   @Get('monthly')
@@ -37,6 +41,38 @@ export class ReportController {
   @Get('products')
   async getProductPerformance(@Query() filter: ReportFilterDto) {
     return this.reportService.getProductPerformance(filter);
+  }
+
+  // ==================== NEW ENDPOINTS ====================
+
+  @Get('sales-channels')
+  async getSalesChannelDistribution(@Query() filter: ReportFilterDto) {
+    return this.reportService.getSalesChannelDistribution(filter);
+  }
+
+  @Get('bulk-sales/summary')
+  async getBulkSalesSummary(@Query() filter: ReportFilterDto) {
+    return this.reportService.getBulkSalesSummary(filter);
+  }
+
+  @Get('service-income/summary')
+  async getServiceIncomeSummary(@Query() filter: ReportFilterDto) {
+    return this.reportService.getServiceIncomeSummary(filter);
+  }
+
+  @Get('revenue-by-channel')
+  async getMonthlyRevenueByChannel(@Query('months') months?: string) {
+    return this.reportService.getMonthlyRevenueByChannel(months ? parseInt(months) : 6);
+  }
+
+  @Get('recent-bulk-sales')
+  async getRecentBulkSales(@Query('limit') limit?: string) {
+    return this.reportService.getRecentBulkSales(limit ? parseInt(limit) : 5);
+  }
+
+  @Get('recent-orders')
+  async getRecentOrders(@Query('limit') limit?: string) {
+    return this.reportService.getRecentOrders(limit ? parseInt(limit) : 5);
   }
 
   @Get('export')
