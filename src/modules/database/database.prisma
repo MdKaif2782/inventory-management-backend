@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql" // or your preferred database
-  url      = env("DATABASE_URL_TEST")
+  url      = env("DATABASE_URL")
 }
 
 model Product {
