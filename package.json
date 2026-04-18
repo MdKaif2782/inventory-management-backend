@@ -19,6 +19,7 @@
     "deploy": "vercel --prod",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "db:reset:keep-petty-cash": "ts-node src/scripts/reset-keep-petty-cash.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
