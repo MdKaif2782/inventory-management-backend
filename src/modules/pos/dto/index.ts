@@ -22,7 +22,6 @@ export class AddToCartDto {
   productId: string;
 
   @IsNumber()
-  @IsPositive()
   quantity: number;
 }
 

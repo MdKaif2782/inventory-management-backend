@@ -136,8 +136,23 @@ export class PosService {
     );
 
     if (existingItemIndex >= 0) {
+      // Calculate new quantity after adding negative quantity
+      const newQuantity = this.carts[cashierId].products[existingItemIndex].quantity + quantity;
+      
+      // Check if new quantity would be negative
+      if (newQuantity < 0) {
+        throw new BadRequestException(
+          `Cannot deduct ${Math.abs(quantity)} items. Only ${this.carts[cashierId].products[existingItemIndex].quantity} items in cart.`,
+        );
+      }
+      
       // Update quantity if product already in cart
-      this.carts[cashierId].products[existingItemIndex].quantity += quantity;
+      this.carts[cashierId].products[existingItemIndex].quantity = newQuantity;
+      
+      // If quantity becomes 0, remove the item from cart
+      if (newQuantity === 0) {
+        this.carts[cashierId].products.splice(existingItemIndex, 1);
+      }
     } else {
       // Get product details
       const product = await this.databaseService.product.findUnique({
@@ -154,6 +169,13 @@ export class PosService {
 
       if (!product) {
         throw new NotFoundException(`Product with ID ${productId} not found`);
+      }
+
+      // Check if quantity is positive for new items
+      if (quantity <= 0) {
+        throw new BadRequestException(
+          `Quantity must be positive when adding new item to cart.`,
+        );
       }
 
       // Check if enough stock is available
