@@ -613,13 +613,10 @@ export class ReportService {
         take: 6
       }),
 
-      // 10. Total Stock Value
-      this.databaseService.product.aggregate({
+      // 10. Total Stock Value - fetch individual products to correctly compute quantity * price per product
+      this.databaseService.product.findMany({
         where: { markDeleted: false },
-        _sum: {
-          quantity: true,
-          purchasePrice: true
-        }
+        select: { quantity: true, purchasePrice: true }
       })
     ]);
 
@@ -635,7 +632,7 @@ export class ReportService {
         lowStockAlerts,
         monthlyInbound: monthlyInbound._sum.quantity || 0,
         monthlyOutbound: monthlyOutbound._sum.quantity || 0,
-        totalStockValue: (stockValue._sum.quantity || 0) * (stockValue._sum.purchasePrice || 0),
+        totalStockValue: stockValue.reduce((sum, p) => sum + p.quantity * p.purchasePrice, 0),
         monthlyRevenue: salesPerformance.currentMonthRevenue
       },
       charts: {
@@ -854,12 +851,12 @@ export class ReportService {
             },
             _sum: { quantity: true }
           }),
-          this.databaseService.product.aggregate({
+          this.databaseService.product.findMany({
             where: {
               markDeleted: false,
               createdAt: { lte: monthEnd }
             },
-            _sum: {
+            select: {
               quantity: true,
               purchasePrice: true
             }
@@ -871,7 +868,7 @@ export class ReportService {
           year: monthStart.getFullYear(),
           inbound: inbound._sum.quantity || 0,
           outbound: outbound._sum.quantity || 0,
-          stockValue: (stockValue._sum.quantity || 0) * (stockValue._sum.purchasePrice || 0),
+          stockValue: stockValue.reduce((sum, p) => sum + p.quantity * p.purchasePrice, 0),
           netChange: (inbound._sum.quantity || 0) - (outbound._sum.quantity || 0)
         };
       })
@@ -1420,7 +1417,6 @@ export class ReportService {
       lowStockItems,
       recentActivity,
       stockValue,
-      stockMovement,
       salesPerformance,
       salesChannelDistribution,
       monthlyRevenueByChannel,
@@ -1453,11 +1449,10 @@ export class ReportService {
         orderBy: { createdAt: 'desc' },
         take: 6,
       }),
-      this.databaseService.product.aggregate({
+      this.databaseService.product.findMany({
         where: { markDeleted: false },
-        _sum: { quantity: true, purchasePrice: true },
+        select: { quantity: true, purchasePrice: true },
       }),
-      this.getStockMovement(6),
       this.getSalesPerformance(),
       this.getSalesChannelDistribution(),
       this.getMonthlyRevenueByChannel(6),
@@ -1473,13 +1468,16 @@ export class ReportService {
     const totalBulkSales = salesChannelDistribution.find(ch => ch.channel === 'bulk')?.revenue || 0;
     const totalServiceIncome = salesChannelDistribution.find(ch => ch.channel === 'service')?.revenue || 0;
 
+    // Stock movement fetched separately (requires sequential month-by-month queries)
+    const stockMovement = await this.getStockMovement(6);
+
     return {
       summaryCards: {
         totalProducts,
         lowStockAlerts,
         monthlyInbound: monthlyInbound._sum.quantity || 0,
         monthlyOutbound: monthlyOutbound._sum.quantity || 0,
-        totalStockValue: (stockValue._sum.quantity || 0) * (stockValue._sum.purchasePrice || 0),
+        totalStockValue: stockValue.reduce((sum, p) => sum + p.quantity * p.purchasePrice, 0),
         monthlyRevenue: salesPerformance.currentMonthRevenue,
         monthlyProfit,
         totalRetailSales,
